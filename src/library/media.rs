@@ -1,4 +1,5 @@
-use futures::{future, StreamExt};
+use chrono::{Datelike, NaiveDate};
+use futures::StreamExt;
 use normpath::PathExt;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -45,6 +46,12 @@ impl Library {
         id
     }
 
+    pub fn insert(&mut self, media: Media) -> MediaId {
+        let id = self.generate_id();
+        self.media.insert(id, media);
+        id
+    }
+
     pub fn extend(&mut self, media: impl IntoIterator<Item = Media>) {
         for media in media {
             if self.iter().any(|(_, other)| other.path() == media.path()) {
@@ -84,10 +91,7 @@ async fn scan_file(path: &Path) -> anyhow::Result<Media> {
         return Err(anyhow::anyhow!("not a video file"));
     }
 
-    Ok(Media::Movie(Movie {
-        path,
-        metadata: None,
-    }))
+    Ok(Media::Uncategorised(path))
 }
 
 pub async fn scan_directories(paths: impl Iterator<Item = &Path>) -> anyhow::Result<Vec<Media>> {
@@ -137,43 +141,102 @@ pub async fn purge_media(media: impl Iterator<Item = (MediaId, PathBuf)>) -> Vec
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Media {
+    Uncategorised(PathBuf),
     Movie(Movie),
     Series(Series),
-    // Season(Season),
-    // Episode(Episode),
+    Season(Season),
+    Episode(Episode),
 }
 
 impl Media {
     pub fn full_title(&self) -> Option<String> {
         match self {
-            Media::Movie(_) => Some(format!("{} ({})", self.title()?, self.year()?)),
-            _ => todo!(),
+            Media::Uncategorised(path) => Some(path.file_name()?.to_str()?.to_string()),
+            Media::Movie(movie) => Some(format!(
+                "{} ({})",
+                movie.metadata.title, movie.metadata.year
+            )),
+            _ => self.title().map(|s| s.to_string()),
         }
     }
 
-    pub fn title(&self) -> Option<&str> {
+    pub fn title(&self) -> Option<String> {
         match self {
-            Media::Movie(movie) => movie
-                .metadata
-                .as_ref()
-                .map(|metadata| metadata.title.as_str()),
-            _ => todo!(),
+            Media::Uncategorised(path) => Some(path.file_name()?.to_str()?.to_string()),
+            Media::Movie(movie) => Some(movie.metadata.title.clone()),
+            Media::Series(series) => Some(series.metadata.title.clone()),
+            Media::Season(season) => Some(format!("Season {}", season.metadata.season)),
+            Media::Episode(episode) => Some(episode.metadata.title.clone()),
+        }
+    }
+
+    pub fn date(&self) -> Option<NaiveDate> {
+        match self {
+            Media::Uncategorised(_) => None,
+            Media::Movie(movie) => movie.metadata.released,
+            Media::Series(series) => series.metadata.aired,
+            Media::Season(season) => season.metadata.aired,
+            Media::Episode(episode) => Some(episode.metadata.aired),
         }
     }
 
     pub fn year(&self) -> Option<u16> {
         match self {
-            Media::Movie(movie) => movie.metadata.as_ref().map(|metadata| metadata.year),
-            _ => todo!(),
+            Media::Movie(movie) => Some(movie.metadata.year),
+            _ => self.date().map(|date| date.year() as u16),
         }
     }
 
     pub fn path(&self) -> Option<&Path> {
         match self {
+            Media::Uncategorised(path) => Some(&path),
             Media::Movie(movie) => Some(&movie.path),
+            Media::Episode(episode) => Some(&episode.path),
             _ => None,
         }
     }
+
+    pub fn poster(&self) -> Option<&Path> {
+        match self {
+            Media::Movie(movie) => Some(&movie.metadata.poster.as_ref()?),
+            Media::Series(series) => Some(&series.metadata.poster.as_ref()?),
+            Media::Season(season) => Some(&season.metadata.poster.as_ref()?),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Movie {
+    pub path: PathBuf,
+    pub metadata: MovieMetadata,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Series {
+    pub metadata: SeriesMetadata,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Season {
+    pub metadata: SeasonMetadata,
+    pub series: MediaId,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Episode {
+    pub path: PathBuf,
+    pub series: MediaId,
+    pub season: MediaId,
+    pub metadata: EpisodeMetadata,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum Metadata {
+    Movie(MovieMetadata),
+    Series(SeriesMetadata),
+    Season(SeasonMetadata),
+    Episode(EpisodeMetadata),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -182,13 +245,30 @@ pub struct MovieMetadata {
     pub title: String,
     pub year: u16,
     pub poster: Option<PathBuf>,
+    pub released: Option<NaiveDate>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Movie {
-    pub path: PathBuf,
-    pub metadata: Option<MovieMetadata>,
+pub struct SeriesMetadata {
+    pub tmdb_id: u64,
+    pub title: String,
+    pub poster: Option<PathBuf>,
+    pub aired: Option<NaiveDate>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Series {}
+pub struct SeasonMetadata {
+    pub series_tmdb_id: u64,
+    pub title: String,
+    pub season: u16,
+    pub poster: Option<PathBuf>,
+    pub aired: Option<NaiveDate>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct EpisodeMetadata {
+    pub series_tmdb_id: u64,
+    pub title: String,
+    pub episode: u16,
+    pub aired: NaiveDate,
+}

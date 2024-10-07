@@ -3,9 +3,10 @@ use super::{
     AppState, LibraryStatus,
 };
 use crate::{
-    library::{self},
+    library::{self, Scraper},
     settings::UserSettings,
 };
+use futures::future;
 
 pub struct App {
     screen: AppScreen,
@@ -57,8 +58,28 @@ impl App {
                 }
                 self.state.library.extend(added);
                 self.state.library.save(&self.state.storage_path).unwrap();
-                self.state.library_status = LibraryStatus::Idle;
-                iced::Task::none()
+
+                let storage = self.state.storage_path.clone();
+                let tmdb_secret = self.state.settings.tmdb_secret.clone();
+                let media: Vec<_> = self
+                    .state
+                    .library
+                    .iter()
+                    .filter_map(|(id, media)| match media {
+                        library::Media::Uncategorised(path) => {
+                            Some((*id, path.file_name()?.to_str()?.to_string()))
+                        }
+                        _ => None,
+                    })
+                    .collect();
+
+                iced::Task::perform(
+                    async move {
+                        let scraper = library::TmdbScraper::new(&tmdb_secret);
+                        library::scrape_all(&scraper, &storage, media.into_iter()).await
+                    },
+                    Message::ScrapeComplete,
+                )
             }
             Message::Player(screen::PlayerMessage::Back) => {
                 let (screen, task) = screen::Home::new();
@@ -92,6 +113,14 @@ impl App {
                     .update(message)
                     .map(|message| Message::Player(message))
             }
+            Message::ScrapeComplete(result) => {
+                result.insert(&mut self.state.library);
+
+                self.state.library.save(&self.state.storage_path).unwrap();
+                self.state.library_status = LibraryStatus::Idle;
+
+                iced::Task::none()
+            }
         }
     }
 
@@ -109,6 +138,7 @@ pub enum Message {
     Home(screen::HomeMessage),
     Player(screen::PlayerMessage),
     Settings(screen::SettingsMessage),
+    ScrapeComplete(library::ScrapeResult),
 }
 
 pub enum AppScreen {

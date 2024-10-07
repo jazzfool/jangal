@@ -6,6 +6,7 @@ use iced::{color, window};
 use ui::app::App;
 
 fn main() -> iced::Result {
+    /*
     env_logger::init_from_env(env_logger::Env::default().default_filter_or(
         if cfg!(debug_assertions) {
             "info"
@@ -13,6 +14,7 @@ fn main() -> iced::Result {
             "error"
         },
     ));
+    */
 
     iced::application("Jangal", App::update, App::view)
         .theme(|_| {

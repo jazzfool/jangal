@@ -10,8 +10,17 @@ use iced::widget::{
 use itertools::Itertools;
 use std::path::Path;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum Tab {
+    Movies,
+    TvShows,
+    TvShow(library::MediaId),
+    Season(library::MediaId),
+}
+
 pub struct Home {
     search: String,
+    tab: Tab,
 }
 
 impl Home {
@@ -19,6 +28,7 @@ impl Home {
         (
             Home {
                 search: String::new(),
+                tab: Tab::Movies,
             },
             iced::Task::none(),
         )
@@ -58,6 +68,10 @@ impl Screen for Home {
                     |(removed, added)| HomeMessage::ScanDirectoriesComplete { removed, added },
                 )
             }
+            HomeMessage::Goto(tab) => {
+                self.tab = tab;
+                iced::Task::none()
+            }
             _ => iced::Task::none(),
         }
     }
@@ -76,10 +90,17 @@ impl Screen for Home {
                     .push(
                         container(
                             scrollable(
-                                center(filtered_media_list(&self.search, &state.library))
-                                    .height(iced::Length::Shrink)
-                                    .align_y(iced::Alignment::Start)
-                                    .padding(iced::Padding::ZERO.left(20.0).right(20.0)),
+                                center(filtered_media_list(
+                                    &self.search,
+                                    state.library.iter().filter(|(_, media)| match self.tab {
+                                        Tab::Movies => matches!(media, library::Media::Movie(_)),
+                                        Tab::TvShows => matches!(media, library::Media::Series(_)),
+                                        _ => unreachable!(),
+                                    }),
+                                ))
+                                .height(iced::Length::Shrink)
+                                .align_y(iced::Alignment::Start)
+                                .padding(iced::Padding::ZERO.left(20.0).right(20.0)),
                             )
                             .width(iced::Length::Fill)
                             .height(iced::Length::Fill)
@@ -90,12 +111,12 @@ impl Screen for Home {
                         .clip(true)
                         .width(iced::Length::Fill)
                         .height(iced::Length::Fill)
-                        .padding(iced::Padding::ZERO.top(80.0)),
+                        .padding(iced::Padding::ZERO.top(70.0)),
                     )
                     .push(
                         column![]
                             .width(iced::Length::Fill)
-                            .push(top_bar(&self.search))
+                            .push(top_bar(&self.search, self.tab, &state.library))
                             .push(horizontal_rule(1.0).style(|theme| rule::Style {
                                 color: iced::Color::from_rgb8(40, 40, 40),
                                 ..<iced::Theme as rule::Catalog>::default()(theme)
@@ -117,6 +138,7 @@ pub enum HomeMessage {
         removed: Vec<library::MediaId>,
         added: Vec<library::Media>,
     },
+    Goto(Tab),
 }
 
 fn media_list<'a, 'b>(
@@ -124,6 +146,7 @@ fn media_list<'a, 'b>(
 ) -> iced::Element<'a, HomeMessage> {
     row![]
         .spacing(10.0)
+        .padding(iced::Padding::new(0.0).top(20.0).bottom(20.0))
         .clip(true)
         .extend(media.map(|(id, media)| media_card(*id, media)))
         .wrap()
@@ -132,18 +155,13 @@ fn media_list<'a, 'b>(
 
 fn filtered_media_list<'a, 'b>(
     search: &str,
-    library: &'b library::Library,
+    media: impl Iterator<Item = (&'b library::MediaId, &'b library::Media)>,
 ) -> iced::Element<'a, HomeMessage> {
     if search.trim().is_empty() {
-        media_list(
-            library
-                .iter()
-                .sorted_by(|(_, a), (_, b)| a.title().cmp(&b.title())),
-        )
+        media_list(media.sorted_by(|(_, a), (_, b)| a.title().cmp(&b.title())))
     } else {
         media_list(
-            library
-                .iter()
+            media
                 .map(|(id, media)| {
                     (
                         id,
@@ -158,62 +176,57 @@ fn filtered_media_list<'a, 'b>(
     }
 }
 
-fn media_card<'a, 'b>(
-    id: library::MediaId,
-    media: &'a library::Media,
-) -> iced::Element<'b, HomeMessage> {
-    match media {
-        library::Media::Movie(movie) => column![]
-            .spacing(5.0)
-            .width(150.0)
+fn media_card<'a>(id: library::MediaId, media: &library::Media) -> iced::Element<'a, HomeMessage> {
+    let has_poster = media.poster().is_some();
+    column![]
+        .spacing(5.0)
+        .width(150.0)
+        .clip(true)
+        .push(
+            container(if let Some(img) = media.poster() {
+                image(img)
+                    .content_fit(iced::ContentFit::Cover)
+                    .width(iced::Length::Fill)
+                    .height(iced::Length::Fill)
+                    .into()
+            } else {
+                iced::Element::from("")
+            })
+            .width(iced::Length::Fill)
+            .height(225.0)
             .clip(true)
-            .push(
-                container(
-                    if let Some(img) = movie.metadata.as_ref().and_then(|meta| meta.poster.clone())
-                    {
-                        image(img)
-                            .content_fit(iced::ContentFit::Cover)
-                            .width(iced::Length::Fill)
-                            .height(iced::Length::Fill)
-                            .into()
-                    } else {
-                        iced::Element::from("")
-                    },
-                )
-                .width(iced::Length::Fill)
-                .height(225.0)
-                .clip(true)
-                .padding(-2.0)
-                .style(|_| container::Style {
-                    background: Some(iced::Background::Color(iced::Color::WHITE)),
-                    border: iced::Border {
-                        radius: iced::border::Radius::new(5.0),
-                        ..Default::default()
-                    },
-                    shadow: iced::Shadow {
-                        color: iced::Color::BLACK,
-                        offset: iced::Vector::new(0.0, 3.0),
-                        blur_radius: 10.0,
-                    },
+            .style(move |_| container::Style {
+                background: (!has_poster).then_some(iced::Background::Color(iced::Color::WHITE)),
+                border: iced::Border {
+                    radius: iced::border::Radius::new(5.0),
                     ..Default::default()
+                },
+                shadow: iced::Shadow {
+                    color: iced::Color::BLACK,
+                    offset: iced::Vector::new(0.0, 3.0),
+                    blur_radius: 10.0,
+                },
+                ..Default::default()
+            }),
+        )
+        .push(
+            text(media.full_title().unwrap_or(String::from("Unknown Media")))
+                .wrapping(text::Wrapping::None)
+                .size(14.0)
+                .font(iced::Font {
+                    weight: iced::font::Weight::Bold,
+                    ..SANS_FONT
                 }),
-            )
-            .push(
-                text(media.full_title().unwrap_or(String::from("Unknown Media")))
-                    .wrapping(text::Wrapping::None)
-                    .size(14.0)
-                    .font(iced::Font {
-                        weight: iced::font::Weight::Bold,
-                        ..SANS_FONT
-                    }),
-            )
-            .push(button("Watch").on_press(HomeMessage::SelectMovie(id)))
-            .into(),
-        library::Media::Series(series) => "series".into(),
-    }
+        )
+        .push(button("Watch").on_press(HomeMessage::SelectMovie(id)))
+        .into()
 }
 
-fn top_bar<'a>(search: &str) -> iced::Element<'a, HomeMessage> {
+fn top_bar<'a>(
+    search: &str,
+    tab: Tab,
+    library: &library::Library,
+) -> iced::Element<'a, HomeMessage> {
     container(
         row![]
             .width(iced::Length::Fill)
@@ -221,9 +234,25 @@ fn top_bar<'a>(search: &str) -> iced::Element<'a, HomeMessage> {
             .spacing(10.0)
             .align_y(iced::Alignment::Center)
             .push(
-                text("Movies")
-                    .size(26.0)
-                    .color(iced::Color::from_rgba8(210, 210, 210, 1.0)),
+                text(match tab {
+                    Tab::Movies => "Movies".into(),
+                    Tab::TvShows => "TV Shows".into(),
+                    Tab::TvShow(id) => library.get(id).unwrap().title().unwrap(),
+                    Tab::Season(id) => {
+                        let library::Media::Season(season) = library.get(id).unwrap() else {
+                            panic!()
+                        };
+                        let series = library.get(season.series).unwrap();
+                        format!(
+                            "{} S{:02} - {}",
+                            series.title().unwrap(),
+                            season.metadata.season,
+                            season.metadata.title
+                        )
+                    }
+                })
+                .size(26.0)
+                .color(iced::Color::from_rgba8(210, 210, 210, 1.0)),
             )
             .push(horizontal_space())
             .push(
@@ -242,8 +271,9 @@ fn top_bar<'a>(search: &str) -> iced::Element<'a, HomeMessage> {
             ),
     )
     .width(iced::Length::Fill)
-    .height(iced::Length::Shrink)
-    .padding(iced::Padding::new(15.0).left(20.0))
+    .center_y(iced::Length::Fill)
+    .height(70.0)
+    .padding(iced::Padding::new(15.0).left(20.0).right(18.0))
     .style(|theme: &iced::Theme| container::Style {
         background: Some(iced::Background::Color(theme.palette().background)),
         shadow: iced::Shadow {
@@ -263,8 +293,8 @@ fn sidebar<'a>(status: LibraryStatus) -> iced::Element<'a, HomeMessage> {
         column![]
             .padding(5.0)
             .spacing(5.0)
-            .push(sidebar_button(0xe02c, "Movies").on_press(HomeMessage::OpenSettings))
-            .push(sidebar_button(0xe639, "TV Shows").on_press(HomeMessage::OpenSettings))
+            .push(sidebar_button(0xe02c, "Movies").on_press(HomeMessage::Goto(Tab::Movies)))
+            .push(sidebar_button(0xe639, "TV Shows").on_press(HomeMessage::Goto(Tab::TvShows)))
             .push(vertical_space())
             .push(
                 sidebar_button(if scanning { 0xe9d0 } else { 0xf3d5 }, "Scan Directories")
