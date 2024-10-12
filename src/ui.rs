@@ -1,8 +1,11 @@
 pub mod app;
+pub mod menu_button;
 pub mod screen;
 
+pub use menu_button::menu_button;
+
 use crate::{library, settings::UserSettings};
-use iced::widget::{button, text, text_input};
+use iced::widget::{button, container, scrollable, text, text_input};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -21,6 +24,13 @@ pub struct AppState {
 
 pub const SANS_FONT: iced::Font = iced::Font {
     family: iced::font::Family::Name("Work Sans"),
+    weight: iced::font::Weight::Normal,
+    stretch: iced::font::Stretch::Normal,
+    style: iced::font::Style::Normal,
+};
+
+pub const HEADER_FONT: iced::Font = iced::Font {
+    family: iced::font::Family::Name("Lexend"),
     weight: iced::font::Weight::Normal,
     stretch: iced::font::Stretch::Normal,
     style: iced::font::Style::Normal,
@@ -80,6 +90,66 @@ pub fn flat_text_input(theme: &iced::Theme, status: text_input::Status) -> text_
         placeholder: iced::Color::from_rgb8(130, 130, 130),
         value: theme.palette().text,
         selection: theme.palette().primary,
+    }
+}
+
+pub fn clear_scrollable(theme: &iced::Theme, status: scrollable::Status) -> scrollable::Style {
+    fn clear_rail(hover: bool, dragged: bool) -> scrollable::Rail {
+        scrollable::Rail {
+            background: None,
+            border: Default::default(),
+            scroller: scrollable::Scroller {
+                color: iced::Color::WHITE.scale_alpha(if dragged {
+                    0.6
+                } else if hover {
+                    0.4
+                } else {
+                    0.2
+                }),
+                border: iced::Border::default()
+                    .rounded(5.0)
+                    .color(iced::Color::TRANSPARENT)
+                    .width(2.0),
+            },
+        }
+    }
+
+    let (hover_vertical, hover_horizontal) = match status {
+        scrollable::Status::Hovered {
+            is_vertical_scrollbar_hovered,
+            is_horizontal_scrollbar_hovered,
+        } => (
+            is_vertical_scrollbar_hovered,
+            is_horizontal_scrollbar_hovered,
+        ),
+        _ => (false, false),
+    };
+
+    let (drag_vertical, drag_horizontal) = match status {
+        scrollable::Status::Dragged {
+            is_vertical_scrollbar_dragged,
+            is_horizontal_scrollbar_dragged,
+        } => (
+            is_vertical_scrollbar_dragged,
+            is_horizontal_scrollbar_dragged,
+        ),
+        _ => (false, false),
+    };
+
+    scrollable::Style {
+        container: container::Style {
+            text_color: None,
+            background: None,
+            border: Default::default(),
+            shadow: iced::Shadow {
+                color: iced::Color::TRANSPARENT,
+                offset: iced::Vector::ZERO,
+                blur_radius: 0.0,
+            },
+        },
+        vertical_rail: clear_rail(hover_vertical, drag_vertical),
+        horizontal_rail: clear_rail(hover_horizontal, drag_horizontal),
+        gap: None,
     }
 }
 

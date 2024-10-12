@@ -6,7 +6,7 @@ use async_std::stream::StreamExt;
 use chrono::Datelike;
 use futures::{AsyncWriteExt, Future};
 use regex::Regex;
-use std::path::Path;
+use std::{path::Path, sync::LazyLock};
 use tmdb_api::{self as tmdb, prelude::Command, reqwest};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -24,35 +24,41 @@ pub enum MediaType {
 }
 
 pub fn detect_media_type(filename: &str) -> MediaType {
-    let query: Vec<_> = filename
-        .split(|c: char| !c.is_ascii_alphanumeric())
-        .filter(|part| !part.is_empty())
-        .collect();
+    static RE_ALPHANUM: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[^a-zA-Z\d]+").unwrap());
+    static RE_MOVIES: LazyLock<Vec<Regex>> = LazyLock::new(|| {
+        vec![
+            // movie 2000
+            Regex::new(r"^([a-z\d\s]+) (\d{4}) ").unwrap(),
+        ]
+    });
+    static RE_EPISODES: LazyLock<Vec<Regex>> = LazyLock::new(|| {
+        vec![
+            // tv show 2000 s01e01
+            Regex::new(r"^([a-z\d\s]+) \d{4} s(\d+)e(\d+) ").unwrap(),
+            // tv show s01e01
+            Regex::new(r"^([a-z\d\s]+) s(\d+)e(\d+) ").unwrap(),
+        ]
+    });
 
-    let year_regex = Regex::new(r"^\d{4}$").unwrap();
-    let se_regex = Regex::new(r"^s(\d{2})e(\d{2})$").unwrap();
+    let clean = RE_ALPHANUM.replace_all(filename, " ").to_lowercase();
 
-    if let Some(year_i) = query.iter().position(|part| year_regex.is_match(part)) {
-        return MediaType::Movie {
-            title: query[..year_i].join(" "),
-            year: query[year_i].parse().unwrap(),
-        };
+    for re in &*RE_EPISODES {
+        if let Some(capture) = re.captures(&clean) {
+            return MediaType::Episode {
+                series_title: capture.get(1).unwrap().as_str().into(),
+                season: capture.get(2).unwrap().as_str().parse().unwrap(),
+                episode: capture.get(3).unwrap().as_str().parse().unwrap(),
+            };
+        }
     }
 
-    if let Some((se_i, season, episode)) = query.iter().enumerate().find_map(|(i, part)| {
-        se_regex.captures(&part.to_lowercase()).map(|m| {
-            (
-                i,
-                m.get(1).unwrap().as_str().to_owned(),
-                m.get(2).unwrap().as_str().to_owned(),
-            )
-        })
-    }) {
-        return MediaType::Episode {
-            series_title: query[..se_i].join(" "),
-            season: season.parse().unwrap(),
-            episode: episode.parse().unwrap(),
-        };
+    for re in &*RE_MOVIES {
+        if let Some(capture) = re.captures(&clean) {
+            return MediaType::Movie {
+                title: capture.get(1).unwrap().as_str().into(),
+                year: capture.get(2).unwrap().as_str().parse().unwrap(),
+            };
+        }
     }
 
     MediaType::Unknown
@@ -89,7 +95,7 @@ async fn download_image(name: &str, dest: &Path) -> anyhow::Result<()> {
 
     let mut file = async_std::fs::File::create(dest).await?;
     while let Some(chunk) = data.next().await {
-        file.write(&chunk?).await?;
+        file.write_all(&chunk?).await?;
     }
 
     file.flush().await?;
@@ -188,7 +194,7 @@ impl Scraper for TmdbScraper {
             tmdb::tvshow::season::details::TVShowSeasonDetails::new(series_id, season as _)
                 .execute(&self.client)
                 .await
-                .map_err(|_| anyhow::anyhow!("tmdb tv show season details failed"))?;
+                .map_err(|err| anyhow::anyhow!("tmdb tv show season details failed: {}", err))?;
 
         let poster = if let Some(poster_path) = details.inner.poster_path {
             let poster_path = poster_path.replace('/', "");
@@ -205,6 +211,7 @@ impl Scraper for TmdbScraper {
             .map(|episode| EpisodeMetadata {
                 series_tmdb_id: series_id,
                 title: episode.inner.name,
+                season,
                 episode: episode.inner.episode_number as _,
                 aired: episode.inner.air_date,
             })
@@ -217,6 +224,7 @@ impl Scraper for TmdbScraper {
                 season,
                 poster,
                 aired: details.inner.air_date,
+                overview: details.inner.overview,
             },
             episodes,
         )))
@@ -251,12 +259,15 @@ impl ScrapeResult {
                 continue;
             };
 
-            let Media::Uncategorised(path) = media else {
+            let Media::Uncategorised(uncategorised) = media else {
                 continue;
             };
-            let path = path.clone();
 
-            *media = Media::Movie(Movie { path, metadata });
+            *media = Media::Movie(Movie {
+                path: uncategorised.path.clone(),
+                watched: uncategorised.watched,
+                metadata,
+            });
         }
 
         for series in series {
@@ -294,13 +305,13 @@ impl ScrapeResult {
                         continue;
                     };
 
-                    let Media::Uncategorised(path) = media else {
+                    let Media::Uncategorised(uncategorised) = media else {
                         continue;
                     };
-                    let path = path.clone();
 
                     *media = Media::Episode(Episode {
-                        path,
+                        path: uncategorised.path.clone(),
+                        watched: uncategorised.watched,
                         series: series_id,
                         season: season_id,
                         metadata,

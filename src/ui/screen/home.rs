@@ -1,26 +1,36 @@
+mod cards;
+mod seasons;
+mod sidebar;
+
 use super::Screen;
 use crate::{
     library,
-    ui::{clear_button, flat_text_input, AppState, LibraryStatus, ICON_FONT, SANS_FONT},
+    ui::{clear_button, clear_scrollable, flat_text_input, icon, AppState, HEADER_FONT, ICON_FONT},
 };
 use iced::widget::{
     button, center, column, container, horizontal_rule, horizontal_space, image, row, rule,
-    scrollable, stack, text, text_input, vertical_rule, vertical_space,
+    scrollable, stack, text, text_input, vertical_rule,
 };
 use itertools::Itertools;
-use std::path::Path;
+use std::{collections::VecDeque, path::Path};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum Tab {
+pub enum Tab {
     Movies,
     TvShows,
     TvShow(library::MediaId),
     Season(library::MediaId),
 }
 
+impl Tab {
+    pub fn overwrites(&self, other: Tab) -> bool {
+        matches!(self, Tab::Movies | Tab::TvShows) && matches!(other, Tab::Movies | Tab::TvShows)
+    }
+}
+
 pub struct Home {
     search: String,
-    tab: Tab,
+    tab_stack: VecDeque<Tab>,
 }
 
 impl Home {
@@ -28,7 +38,7 @@ impl Home {
         (
             Home {
                 search: String::new(),
-                tab: Tab::Movies,
+                tab_stack: VecDeque::from([Tab::Movies]),
             },
             iced::Task::none(),
         )
@@ -44,32 +54,20 @@ impl Screen for Home {
                 self.search = value;
                 iced::Task::none()
             }
-            HomeMessage::ScanDirectories => {
-                state.library_status = LibraryStatus::Scanning;
-
-                let existing: Vec<_> = state
-                    .library
-                    .iter()
-                    .filter_map(|(id, media)| Some((*id, media.path()?.to_path_buf())))
-                    .collect();
-
-                let directories = state.settings.directories.clone();
-
-                iced::Task::perform(
-                    async move {
-                        let removed = library::purge_media(existing.into_iter()).await;
-                        let added = library::scan_directories(
-                            directories.iter().map(|path| path.as_path()),
-                        )
-                        .await
-                        .unwrap_or_default();
-                        (removed, added)
-                    },
-                    |(removed, added)| HomeMessage::ScanDirectoriesComplete { removed, added },
-                )
-            }
             HomeMessage::Goto(tab) => {
-                self.tab = tab;
+                let last_tab = self.tab_stack.back_mut().unwrap();
+                if last_tab.overwrites(tab) {
+                    *last_tab = tab;
+                } else {
+                    self.tab_stack.push_back(tab);
+                }
+                iced::Task::none()
+            }
+            HomeMessage::Back => {
+                self.tab_stack.pop_back();
+                if self.tab_stack.is_empty() {
+                    self.tab_stack.push_back(Tab::Movies);
+                }
                 iced::Task::none()
             }
             _ => iced::Task::none(),
@@ -77,8 +75,11 @@ impl Screen for Home {
     }
 
     fn view(&self, state: &AppState) -> iced::Element<HomeMessage> {
+        let search = (!self.search.trim().is_empty()).then_some(self.search.as_str());
+        let tab = self.tab_stack.back().copied().unwrap();
+
         row![]
-            .push(sidebar(state.library_status))
+            .push(sidebar::sidebar(state.library_status))
             .push(vertical_rule(1.0).style(|theme| rule::Style {
                 color: iced::Color::from_rgb8(40, 40, 40),
                 ..<iced::Theme as rule::Catalog>::default()(theme)
@@ -90,20 +91,54 @@ impl Screen for Home {
                     .push(
                         container(
                             scrollable(
-                                center(filtered_media_list(
-                                    &self.search,
-                                    state.library.iter().filter(|(_, media)| match self.tab {
-                                        Tab::Movies => matches!(media, library::Media::Movie(_)),
-                                        Tab::TvShows => matches!(media, library::Media::Series(_)),
-                                        _ => unreachable!(),
-                                    }),
-                                ))
+                                center(match tab {
+                                    Tab::Movies | Tab::TvShows => cards::card_grid(
+                                        search,
+                                        state.library.iter().filter(|(_, media)| match tab {
+                                            Tab::Movies => {
+                                                matches!(media, library::Media::Movie(_))
+                                            }
+                                            Tab::TvShows => {
+                                                matches!(media, library::Media::Series(_))
+                                            }
+                                            _ => unreachable!(),
+                                        }),
+                                        &state.library,
+                                    ),
+                                    Tab::TvShow(id) => seasons::season_list(
+                                        search,
+                                        id,
+                                        state
+                                            .library
+                                            .get(id)
+                                            .and_then(|media| match media {
+                                                library::Media::Series(series) => Some(series),
+                                                _ => None,
+                                            })
+                                            .unwrap(),
+                                        &state.library,
+                                    ),
+                                    Tab::Season(id) => seasons::season_panel(
+                                        search,
+                                        id,
+                                        state
+                                            .library
+                                            .get(id)
+                                            .and_then(|media| match media {
+                                                library::Media::Season(season) => Some(season),
+                                                _ => None,
+                                            })
+                                            .unwrap(),
+                                        &state.library,
+                                    ),
+                                })
                                 .height(iced::Length::Shrink)
                                 .align_y(iced::Alignment::Start)
                                 .padding(iced::Padding::ZERO.left(20.0).right(20.0)),
                             )
                             .width(iced::Length::Fill)
                             .height(iced::Length::Fill)
+                            .style(clear_scrollable)
                             .direction(
                                 scrollable::Direction::Vertical(scrollable::Scrollbar::new()),
                             ),
@@ -116,7 +151,7 @@ impl Screen for Home {
                     .push(
                         column![]
                             .width(iced::Length::Fill)
-                            .push(top_bar(&self.search, self.tab, &state.library))
+                            .push(top_bar(&self.search, tab, &state.library))
                             .push(horizontal_rule(1.0).style(|theme| rule::Style {
                                 color: iced::Color::from_rgb8(40, 40, 40),
                                 ..<iced::Theme as rule::Catalog>::default()(theme)
@@ -127,99 +162,143 @@ impl Screen for Home {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum HomeAction {
+    ScanDirectories,
+    Purge,
+    ForceScan,
+}
+
 #[derive(Debug, Clone)]
 pub enum HomeMessage {
-    SelectMovie(library::MediaId),
-    ScrapeComplete((library::MediaId, library::MovieMetadata)),
+    Play(library::MediaId),
     OpenSettings,
     Search(String),
-    ScanDirectories,
-    ScanDirectoriesComplete {
-        removed: Vec<library::MediaId>,
-        added: Vec<library::Media>,
-    },
+    Action(HomeAction),
     Goto(Tab),
+    Back,
 }
 
-fn media_list<'a, 'b>(
-    media: impl Iterator<Item = (&'b library::MediaId, &'b library::Media)>,
-) -> iced::Element<'a, HomeMessage> {
-    row![]
-        .spacing(10.0)
-        .padding(iced::Padding::new(0.0).top(20.0).bottom(20.0))
-        .clip(true)
-        .extend(media.map(|(id, media)| media_card(*id, media)))
-        .wrap()
-        .into()
-}
+fn poster_image<'a>(poster: Option<&Path>) -> iced::Element<'a, HomeMessage> {
+    let poster = poster.map(Path::to_path_buf);
 
-fn filtered_media_list<'a, 'b>(
-    search: &str,
-    media: impl Iterator<Item = (&'b library::MediaId, &'b library::Media)>,
-) -> iced::Element<'a, HomeMessage> {
-    if search.trim().is_empty() {
-        media_list(media.sorted_by(|(_, a), (_, b)| a.title().cmp(&b.title())))
-    } else {
-        media_list(
-            media
-                .map(|(id, media)| {
-                    (
-                        id,
-                        media,
-                        sublime_fuzzy::best_match(search, &media.full_title().unwrap_or_default()),
-                    )
-                })
-                .filter_map(|(id, media, fuzzy)| Some((id, media, fuzzy?.score())))
-                .sorted_by(|(_, _, a), (_, _, b)| a.cmp(b))
-                .map(|(id, media, _)| (id, media)),
-        )
-    }
-}
-
-fn media_card<'a>(id: library::MediaId, media: &library::Media) -> iced::Element<'a, HomeMessage> {
-    let has_poster = media.poster().is_some();
-    column![]
-        .spacing(5.0)
-        .width(150.0)
-        .clip(true)
-        .push(
-            container(if let Some(img) = media.poster() {
-                image(img)
-                    .content_fit(iced::ContentFit::Cover)
-                    .width(iced::Length::Fill)
-                    .height(iced::Length::Fill)
-                    .into()
-            } else {
-                iced::Element::from("")
-            })
+    container(if let Some(img) = &poster {
+        image(img)
+            .content_fit(iced::ContentFit::Cover)
             .width(iced::Length::Fill)
-            .height(225.0)
-            .clip(true)
-            .style(move |_| container::Style {
-                background: (!has_poster).then_some(iced::Background::Color(iced::Color::WHITE)),
-                border: iced::Border {
-                    radius: iced::border::Radius::new(5.0),
-                    ..Default::default()
-                },
-                shadow: iced::Shadow {
-                    color: iced::Color::BLACK,
-                    offset: iced::Vector::new(0.0, 3.0),
-                    blur_radius: 10.0,
-                },
-                ..Default::default()
-            }),
-        )
-        .push(
-            text(media.full_title().unwrap_or(String::from("Unknown Media")))
-                .wrapping(text::Wrapping::None)
-                .size(14.0)
-                .font(iced::Font {
-                    weight: iced::font::Weight::Bold,
-                    ..SANS_FONT
-                }),
-        )
-        .push(button("Watch").on_press(HomeMessage::SelectMovie(id)))
-        .into()
+            .height(iced::Length::Fill)
+            .into()
+    } else {
+        iced::Element::from("")
+    })
+    .width(150.0)
+    .height(225.0)
+    .clip(true)
+    .style(move |_| container::Style {
+        background: poster
+            .is_none()
+            .then_some(iced::Background::Color(iced::Color::WHITE)),
+        border: iced::Border {
+            radius: iced::border::Radius::new(5.0),
+            ..Default::default()
+        },
+        shadow: iced::Shadow {
+            color: iced::Color::BLACK,
+            offset: iced::Vector::new(0.0, 3.0),
+            blur_radius: 10.0,
+        },
+        ..Default::default()
+    })
+    .into()
+}
+
+fn watched_icon<'a>(watched: library::Watched, icon_first: bool) -> iced::Element<'a, HomeMessage> {
+    let icon = icon(match watched {
+        library::Watched::No => 0xe8f5,
+        library::Watched::Partial { percent, .. } => {
+            if percent < 0.125 {
+                0xf726
+            } else if percent < 0.25 {
+                0xf725
+            } else if percent < 0.5 {
+                0xf724
+            } else if percent < 0.625 {
+                0xf723
+            } else if percent < 0.75 {
+                0xf722
+            } else {
+                0xf721
+            }
+        }
+        library::Watched::Yes => 0xe8f4,
+    });
+
+    let label = match watched {
+        library::Watched::Partial { percent, .. } => format!("{}%", (percent * 100.0) as u8),
+        _ => String::new(),
+    };
+
+    let row = row![].align_y(iced::Alignment::Center).spacing(5.0);
+    let row = if icon_first {
+        row.push(icon).push(text(label))
+    } else {
+        row.push(text(label)).push(icon)
+    };
+
+    row.into()
+}
+
+fn search_episode(
+    search: &str,
+    _id: library::MediaId,
+    episode: &library::Episode,
+) -> Option<isize> {
+    [
+        format!(
+            "S{:02}E{:02}",
+            episode.metadata.season, episode.metadata.episode
+        ),
+        episode.metadata.title.clone(),
+    ]
+    .into_iter()
+    .filter_map(|s| sublime_fuzzy::best_match(search, &s).map(|m| m.score()))
+    .max()
+}
+
+fn search_season(
+    search: &str,
+    id: library::MediaId,
+    season: &library::Season,
+    library: &library::Library,
+) -> Option<isize> {
+    [
+        format!("S{:02}", season.metadata.season),
+        season.metadata.title.clone(),
+        season.metadata.overview.clone().unwrap_or_default(),
+    ]
+    .into_iter()
+    .filter_map(|s| sublime_fuzzy::best_match(search, &s).map(|m| m.score()))
+    .chain(
+        library::find_episodes(id, library)
+            .flat_map(|(id, episode)| search_episode(search, *id, episode)),
+    )
+    .max()
+}
+
+fn search_maybe<T>(
+    iter: impl Iterator<Item = T>,
+    search: Option<impl Fn(&T) -> Option<isize>>,
+    sort: impl Fn(&T, &T) -> std::cmp::Ordering,
+) -> impl Iterator<Item = T> {
+    iter.filter_map(|x| {
+        if let Some(search) = &search {
+            Some((search(&x)?, x))
+        } else {
+            Some((0, x))
+        }
+    })
+    .sorted_by(|(a_score, a), (b_score, b)| b_score.cmp(a_score).then_with(|| sort(a, b)))
+    .map(|(_, x)| x)
 }
 
 fn top_bar<'a>(
@@ -231,8 +310,22 @@ fn top_bar<'a>(
         row![]
             .width(iced::Length::Fill)
             .height(iced::Length::Shrink)
-            .spacing(10.0)
+            .spacing(20.0)
             .align_y(iced::Alignment::Center)
+            .push(
+                button(
+                    icon(0xe5c4)
+                        .size(26.0)
+                        .width(iced::Length::Fill)
+                        .height(iced::Length::Fill)
+                        .align_y(iced::Alignment::Center)
+                        .align_x(iced::Alignment::Center),
+                )
+                .padding(0.0)
+                .width(40.0)
+                .style(clear_button)
+                .on_press(HomeMessage::Back),
+            )
             .push(
                 text(match tab {
                     Tab::Movies => "Movies".into(),
@@ -251,12 +344,13 @@ fn top_bar<'a>(
                         )
                     }
                 })
-                .size(26.0)
+                .font(HEADER_FONT)
+                .size(28.0)
                 .color(iced::Color::from_rgba8(210, 210, 210, 1.0)),
             )
             .push(horizontal_space())
             .push(
-                text_input("Search...", search)
+                text_input("Search", search)
                     .on_input(HomeMessage::Search)
                     .width(200.0)
                     .padding(iced::Padding::new(5.0).left(10.0))
@@ -273,11 +367,11 @@ fn top_bar<'a>(
     .width(iced::Length::Fill)
     .center_y(iced::Length::Fill)
     .height(70.0)
-    .padding(iced::Padding::new(15.0).left(20.0).right(18.0))
+    .padding(iced::Padding::new(15.0).right(18.0))
     .style(|theme: &iced::Theme| container::Style {
         background: Some(iced::Background::Color(theme.palette().background)),
         shadow: iced::Shadow {
-            color: iced::Color::BLACK,
+            color: iced::Color::BLACK.scale_alpha(1.5),
             offset: iced::Vector::new(0.0, 1.0),
             blur_radius: 10.0,
         },
@@ -286,35 +380,7 @@ fn top_bar<'a>(
     .into()
 }
 
-fn sidebar<'a>(status: LibraryStatus) -> iced::Element<'a, HomeMessage> {
-    let scanning = matches!(status, LibraryStatus::Scanning);
-
-    container(
-        column![]
-            .padding(5.0)
-            .spacing(5.0)
-            .push(sidebar_button(0xe02c, "Movies").on_press(HomeMessage::Goto(Tab::Movies)))
-            .push(sidebar_button(0xe639, "TV Shows").on_press(HomeMessage::Goto(Tab::TvShows)))
-            .push(vertical_space())
-            .push(
-                sidebar_button(if scanning { 0xe9d0 } else { 0xf3d5 }, "Scan Directories")
-                    .on_press_maybe((!scanning).then_some(HomeMessage::ScanDirectories)),
-            )
-            .push(
-                sidebar_button(0xe8b8, "Settings")
-                    .on_press_maybe((!scanning).then_some(HomeMessage::OpenSettings)),
-            ),
-    )
-    .width(250.0)
-    .height(iced::Length::Fill)
-    .style(|theme: &iced::Theme| container::Style {
-        background: Some(iced::Background::Color(theme.palette().background)),
-        ..Default::default()
-    })
-    .into()
-}
-
-fn sidebar_button<'a>(icon: u32, label: &'a str) -> iced::widget::Button<'a, HomeMessage> {
+fn menu_item<'a>(icon: u32, label: &'a str) -> iced::widget::Button<'a, HomeMessage> {
     button(
         row![]
             .width(iced::Length::Fill)
@@ -324,12 +390,12 @@ fn sidebar_button<'a>(icon: u32, label: &'a str) -> iced::widget::Button<'a, Hom
             .push(
                 text(char::from_u32(icon).expect("codepoint"))
                     .font(ICON_FONT)
-                    .size(20.0),
+                    .size(16.0),
             )
             .push(label),
     )
     .width(iced::Length::Fill)
-    .height(40.0)
+    .height(30.0)
     .padding(iced::Padding::new(5.0).left(10.0))
     .style(clear_button)
 }

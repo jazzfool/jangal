@@ -23,7 +23,7 @@ fn main() -> iced::Result {
                 iced::theme::Palette {
                     background: color!(0x111111),
                     text: color!(0xf0f0f0),
-                    primary: color!(0x5c57ff),
+                    primary: color!(0x007aff),
                     success: color!(0x50cc4e),
                     danger: color!(0xcc5d4e),
                 },
@@ -35,10 +35,12 @@ fn main() -> iced::Result {
                 include_bytes!("ui/resources/WorkSans-Bold.ttf").into(),
                 include_bytes!("ui/resources/WorkSans-Italic.ttf").into(),
                 include_bytes!("ui/resources/WorkSans-BoldItalic.ttf").into(),
+                include_bytes!("ui/resources/Lexend-Regular.ttf").into(),
                 include_bytes!("ui/resources/CourierPrime-Regular.ttf").into(),
                 include_bytes!("ui/resources/MaterialSymbolsSharp_Filled-Regular.ttf").into(),
             ],
             default_font: ui::SANS_FONT,
+            default_text_size: 16.0.into(),
             ..Default::default()
         })
         .window(window::Settings {
@@ -48,5 +50,6 @@ fn main() -> iced::Result {
             ),
             ..Default::default()
         })
+        .subscription(App::subscription)
         .run_with(App::new)
 }

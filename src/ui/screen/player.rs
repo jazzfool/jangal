@@ -6,37 +6,59 @@ use iced::widget::{
     button, center, column, container, horizontal_space, mouse_area, row, slider, stack, svg, text,
     vertical_space,
 };
-use iced_video_player::{Video, VideoPlayer};
+use iced_video_player::{Position, Video, VideoPlayer};
 use std::time::Duration;
 
 pub struct Player {
     id: library::MediaId,
     video: Video,
+    duration: f64,
     position: f64,
     dragging: bool,
     show_controls: bool,
+    is_fullscreen: bool,
 }
 
 impl Player {
-    pub fn new(id: library::MediaId, state: &AppState) -> Self {
+    pub fn new(id: library::MediaId, state: &AppState) -> (Self, iced::Task<PlayerMessage>) {
         let media = state.library.get(id).unwrap();
-        let path = match media {
-            library::Media::Movie(movie) => &movie.path,
-            _ => unimplemented!(),
-        };
+        let path = media.path().unwrap();
 
-        let video = Video::new(&url::Url::from_file_path(path).unwrap()).unwrap();
+        let mut video = Video::new(&url::Url::from_file_path(path).unwrap()).unwrap();
+        let duration = video.duration().as_secs_f64();
 
-        Player {
-            id,
-            video,
-            position: 0.0,
-            dragging: false,
-            show_controls: false,
+        if let Some(position) = media.watched().and_then(|watched| match watched {
+            library::Watched::Partial { seconds, .. } => {
+                Some(Position::Time(Duration::from_secs_f32(seconds)))
+            }
+            _ => None,
+        }) {
+            video.seek(position, true).unwrap();
         }
+
+        (
+            Player {
+                id,
+                video,
+                duration,
+                position: 0.0,
+                dragging: false,
+                show_controls: false,
+                is_fullscreen: false,
+            },
+            iced::Task::none(),
+        )
     }
 
-    pub fn update(&mut self, message: PlayerMessage) -> iced::Task<PlayerMessage> {
+    pub fn subscription(&self) -> iced::Subscription<PlayerMessage> {
+        iced::time::every(Duration::from_secs(10)).map(|_| PlayerMessage::UpdateWatched)
+    }
+
+    pub fn update(
+        &mut self,
+        message: PlayerMessage,
+        state: &mut AppState,
+    ) -> iced::Task<PlayerMessage> {
         match message {
             PlayerMessage::NewFrame => {
                 if !self.dragging {
@@ -79,11 +101,78 @@ impl Player {
                 self.show_controls = false;
                 iced::Task::none()
             }
+            PlayerMessage::ToggleFullscreen => {
+                self.is_fullscreen = !self.is_fullscreen;
+                let fullscreen = self.is_fullscreen;
+                iced::window::get_latest()
+                    .and_then(move |id| {
+                        iced::window::change_mode::<()>(
+                            id,
+                            if fullscreen {
+                                iced::window::Mode::Fullscreen
+                            } else {
+                                iced::window::Mode::Windowed
+                            },
+                        )
+                    })
+                    .discard()
+            }
+            PlayerMessage::UpdateWatched => {
+                if let Some(watched) = state
+                    .library
+                    .get_mut(self.id)
+                    .and_then(library::Media::watched_mut)
+                {
+                    // TODO: make fully-watched threshold adjustable
+                    *watched = if self.duration - self.position < 120.0 {
+                        library::Watched::Yes
+                    } else {
+                        library::Watched::Partial {
+                            seconds: self.position as f32,
+                            percent: (self.position / self.duration) as f32,
+                        }
+                    };
+                    let library = state.library.clone();
+                    let storage_path = state.storage_path.clone();
+                    iced::Task::perform(
+                        async move {
+                            library.save(&storage_path).unwrap();
+                        },
+                        |_| (),
+                    )
+                    .discard()
+                } else {
+                    iced::Task::none()
+                }
+            }
             _ => iced::Task::none(),
         }
     }
 
     pub fn view<'a>(&'a self, state: &'a AppState) -> iced::Element<PlayerMessage> {
+        let title = match state.library.get(self.id) {
+            Some(library::Media::Episode(episode)) => {
+                let series = state
+                    .library
+                    .get(episode.series)
+                    .and_then(|media| match media {
+                        library::Media::Series(series) => Some(series),
+                        _ => None,
+                    })
+                    .map(|series| series.metadata.title.clone())
+                    .unwrap_or("Unknown Series".into());
+                format!(
+                    "{} S{:02}E{:02} - {}",
+                    series,
+                    episode.metadata.season,
+                    episode.metadata.episode,
+                    episode.metadata.title
+                )
+            }
+            Some(media) => media.full_title().unwrap_or("Unknown Media".into()),
+            None => "Unknown Media".into(),
+        };
+
         mouse_area(
             stack![]
                 .width(iced::Length::Fill)
@@ -116,12 +205,12 @@ impl Player {
                                             PlayerMessage::Back,
                                             false,
                                         ))
-                                        .push(text(
-                                            state
-                                                .library
-                                                .get(self.id)
-                                                .and_then(|media| media.full_title())
-                                                .unwrap_or(String::from("Unknown Media")),
+                                        .push(text(title))
+                                        .push(horizontal_space())
+                                        .push(control_button(
+                                            icon(if self.is_fullscreen { 0xf1cf } else { 0xf1ce }),
+                                            PlayerMessage::ToggleFullscreen,
+                                            false,
                                         )),
                                 )
                                 .style(|_| container::Style {
@@ -140,7 +229,7 @@ impl Player {
                                     )),
                                     ..Default::default()
                                 })
-                                .padding(iced::Padding::ZERO.left(20.0))
+                                .padding(iced::Padding::ZERO.left(20.0).right(20.0))
                                 .align_y(iced::Alignment::Center)
                                 .width(iced::Length::Fill)
                                 .height(60.0)
@@ -328,6 +417,7 @@ impl Player {
                         ),
                 ),
         )
+        .on_press(PlayerMessage::TogglePause)
         .into()
     }
 }
@@ -343,6 +433,8 @@ pub enum PlayerMessage {
     Back,
     MouseEnter,
     MouseExit,
+    ToggleFullscreen,
+    UpdateWatched,
 }
 
 fn control_button(
