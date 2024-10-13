@@ -5,32 +5,20 @@ mod sidebar;
 use super::Screen;
 use crate::{
     library,
-    ui::{clear_button, clear_scrollable, flat_text_input, icon, AppState, HEADER_FONT, ICON_FONT},
+    ui::{
+        clear_button, clear_scrollable, flat_text_input, icon, menu_button, AppState, Tab,
+        HEADER_FONT, ICON_FONT,
+    },
 };
 use iced::widget::{
     button, center, column, container, horizontal_rule, horizontal_space, image, row, rule,
     scrollable, stack, text, text_input, vertical_rule,
 };
 use itertools::Itertools;
-use std::{collections::VecDeque, path::Path};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Tab {
-    Movies,
-    TvShows,
-    TvShow(library::MediaId),
-    Season(library::MediaId),
-}
-
-impl Tab {
-    pub fn overwrites(&self, other: Tab) -> bool {
-        matches!(self, Tab::Movies | Tab::TvShows) && matches!(other, Tab::Movies | Tab::TvShows)
-    }
-}
+use std::path::Path;
 
 pub struct Home {
     search: String,
-    tab_stack: VecDeque<Tab>,
 }
 
 impl Home {
@@ -38,7 +26,6 @@ impl Home {
         (
             Home {
                 search: String::new(),
-                tab_stack: VecDeque::from([Tab::Movies]),
             },
             iced::Task::none(),
         )
@@ -55,19 +42,27 @@ impl Screen for Home {
                 iced::Task::none()
             }
             HomeMessage::Goto(tab) => {
-                let last_tab = self.tab_stack.back_mut().unwrap();
+                let last_tab = state.tab_stack.back_mut().unwrap();
                 if last_tab.overwrites(tab) {
                     *last_tab = tab;
                 } else {
-                    self.tab_stack.push_back(tab);
+                    state.tab_stack.push_back(tab);
                 }
                 iced::Task::none()
             }
             HomeMessage::Back => {
-                self.tab_stack.pop_back();
-                if self.tab_stack.is_empty() {
-                    self.tab_stack.push_back(Tab::Movies);
+                state.tab_stack.pop_back();
+                if state.tab_stack.is_empty() {
+                    state.tab_stack.push_back(Tab::Movies);
                 }
+                iced::Task::none()
+            }
+            HomeMessage::MarkUnwatched(id) => {
+                library::set_watched(id, library::Watched::No, &mut state.library);
+                iced::Task::none()
+            }
+            HomeMessage::MarkWatched(id) => {
+                library::set_watched(id, library::Watched::Yes, &mut state.library);
                 iced::Task::none()
             }
             _ => iced::Task::none(),
@@ -76,7 +71,7 @@ impl Screen for Home {
 
     fn view(&self, state: &AppState) -> iced::Element<HomeMessage> {
         let search = (!self.search.trim().is_empty()).then_some(self.search.as_str());
-        let tab = self.tab_stack.back().copied().unwrap();
+        let tab = state.tab_stack.back().copied().unwrap();
 
         row![]
             .push(sidebar::sidebar(state.library_status))
@@ -177,6 +172,8 @@ pub enum HomeMessage {
     Action(HomeAction),
     Goto(Tab),
     Back,
+    MarkWatched(library::MediaId),
+    MarkUnwatched(library::MediaId),
 }
 
 fn poster_image<'a>(poster: Option<&Path>) -> iced::Element<'a, HomeMessage> {
@@ -213,9 +210,9 @@ fn poster_image<'a>(poster: Option<&Path>) -> iced::Element<'a, HomeMessage> {
 }
 
 fn watched_icon<'a>(watched: library::Watched, icon_first: bool) -> iced::Element<'a, HomeMessage> {
-    let icon = icon(match watched {
-        library::Watched::No => 0xe8f5,
-        library::Watched::Partial { percent, .. } => {
+    let (color, codepoint) = match watched {
+        library::Watched::No => (iced::Color::from_rgb8(200, 200, 200), 0xe8f5),
+        library::Watched::Partial { percent, .. } => (iced::Color::from_rgb8(95, 143, 245), {
             if percent < 0.125 {
                 0xf726
             } else if percent < 0.25 {
@@ -229,9 +226,10 @@ fn watched_icon<'a>(watched: library::Watched, icon_first: bool) -> iced::Elemen
             } else {
                 0xf721
             }
-        }
-        library::Watched::Yes => 0xe8f4,
-    });
+        }),
+        library::Watched::Yes => (iced::Color::from_rgb8(68, 161, 50), 0xe8f4),
+    };
+    let icon = icon(codepoint).color(color);
 
     let label = match watched {
         library::Watched::Partial { percent, .. } => format!("{}%", (percent * 100.0) as u8),
@@ -240,9 +238,9 @@ fn watched_icon<'a>(watched: library::Watched, icon_first: bool) -> iced::Elemen
 
     let row = row![].align_y(iced::Alignment::Center).spacing(5.0);
     let row = if icon_first {
-        row.push(icon).push(text(label))
+        row.push(icon).push(text(label).color(color))
     } else {
-        row.push(text(label)).push(icon)
+        row.push(text(label).color(color)).push(icon)
     };
 
     row.into()
@@ -299,6 +297,66 @@ fn search_maybe<T>(
     })
     .sorted_by(|(a_score, a), (b_score, b)| b_score.cmp(a_score).then_with(|| sort(a, b)))
     .map(|(_, x)| x)
+}
+
+fn media_menu<'a>(
+    id: library::MediaId,
+    library: &library::Library,
+) -> iced::Element<'a, HomeMessage> {
+    let watched = library::calculate_watched(id, library).unwrap_or(library::Watched::No);
+
+    menu_button(
+        container(icon(0xe5d2).size(20.0)).center(iced::Length::Fill),
+        move || {
+            container(
+                column![]
+                    .push_maybe(
+                        matches!(
+                            watched,
+                            library::Watched::Partial { .. } | library::Watched::Yes
+                        )
+                        .then(|| {
+                            menu_item(0xe8f5, "Mark unwatched")
+                                .on_press(HomeMessage::MarkUnwatched(id))
+                        }),
+                    )
+                    .push_maybe(
+                        matches!(
+                            watched,
+                            library::Watched::No | library::Watched::Partial { .. }
+                        )
+                        .then(|| {
+                            menu_item(0xe8f4, "Mark watched").on_press(HomeMessage::MarkWatched(id))
+                        }),
+                    )
+                    .width(200.0)
+                    .spacing(5.0),
+            )
+            .padding(5.0)
+            .style(|theme: &iced::Theme| container::Style {
+                background: Some(iced::Background::Color(
+                    theme.extended_palette().background.strong.text,
+                )),
+                border: iced::Border {
+                    color: theme.extended_palette().background.weak.color,
+                    width: 1.0,
+                    radius: iced::border::radius(10.0),
+                },
+                shadow: iced::Shadow {
+                    color: iced::Color::BLACK.scale_alpha(1.2),
+                    offset: iced::Vector::new(0.0, 3.0),
+                    blur_radius: 20.0,
+                },
+                ..Default::default()
+            })
+            .into()
+        },
+    )
+    .padding(0.0)
+    .width(30.0)
+    .height(30.0)
+    .style(clear_button)
+    .into()
 }
 
 fn top_bar<'a>(

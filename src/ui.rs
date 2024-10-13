@@ -6,7 +6,21 @@ pub use menu_button::menu_button;
 
 use crate::{library, settings::UserSettings};
 use iced::widget::{button, container, scrollable, text, text_input};
-use std::path::PathBuf;
+use std::{collections::VecDeque, path::PathBuf};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Tab {
+    Movies,
+    TvShows,
+    TvShow(library::MediaId),
+    Season(library::MediaId),
+}
+
+impl Tab {
+    pub fn overwrites(&self, other: Tab) -> bool {
+        matches!(self, Tab::Movies | Tab::TvShows) && matches!(other, Tab::Movies | Tab::TvShows)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum LibraryStatus {
@@ -20,6 +34,7 @@ pub struct AppState {
     pub settings: UserSettings,
 
     pub library_status: LibraryStatus,
+    pub tab_stack: VecDeque<Tab>,
 }
 
 pub const SANS_FONT: iced::Font = iced::Font {

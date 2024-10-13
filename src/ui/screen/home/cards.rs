@@ -1,8 +1,5 @@
-use super::{menu_item, poster_image, search_maybe, watched_icon, HomeMessage, Tab};
-use crate::{
-    library,
-    ui::{clear_button, icon, menu_button},
-};
+use super::{media_menu, poster_image, search_maybe, watched_icon, HomeMessage, Tab};
+use crate::{library, ui::icon};
 use iced::widget::{column, container, horizontal_space, hover, mouse_area, row, stack, text};
 
 pub fn card_grid<'a, 'b>(
@@ -67,40 +64,7 @@ fn media_card<'a>(
                             true,
                         ))
                         .push(horizontal_space())
-                        .push(
-                            menu_button(
-                                container(icon(0xe5d2).size(20.0)).center_y(iced::Length::Fill),
-                                || {
-                                    container(
-                                        column![]
-                                            .push(menu_item(0xe8f5, "Mark unwatched"))
-                                            .push(menu_item(0xe8f4, "Mark watched"))
-                                            .width(200.0)
-                                            .spacing(5.0),
-                                    )
-                                    .padding(5.0)
-                                    .style(|theme: &iced::Theme| container::Style {
-                                        background: Some(iced::Background::Color(
-                                            theme.extended_palette().background.strong.text,
-                                        )),
-                                        border: iced::Border {
-                                            color: theme.extended_palette().background.weak.color,
-                                            width: 1.0,
-                                            radius: iced::border::radius(10.0),
-                                        },
-                                        shadow: iced::Shadow {
-                                            color: iced::Color::BLACK.scale_alpha(1.2),
-                                            offset: iced::Vector::new(0.0, 3.0),
-                                            blur_radius: 20.0,
-                                        },
-                                        ..Default::default()
-                                    })
-                                    .into()
-                                },
-                            )
-                            .padding(iced::Padding::new(0.0).left(5.0).right(5.0))
-                            .style(clear_button),
-                        ),
+                        .push(media_menu(id, library)),
                 )
                 .width(iced::Length::Fill)
                 .height(150.0)

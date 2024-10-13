@@ -3,7 +3,7 @@ use crate::{
     ui::{icon, AppState},
 };
 use iced::widget::{
-    button, center, column, container, horizontal_space, mouse_area, row, slider, stack, svg, text,
+    button, center, column, container, horizontal_space, mouse_area, row, slider, stack, text,
     vertical_space,
 };
 use iced_video_player::{Position, Video, VideoPlayer};
@@ -25,6 +25,9 @@ impl Player {
         let path = media.path().unwrap();
 
         let mut video = Video::new(&url::Url::from_file_path(path).unwrap()).unwrap();
+        video.set_subtitles_enabled(state.settings.show_subtitles);
+        video.set_subtitle_font("Sans", 16);
+
         let duration = video.duration().as_secs_f64();
 
         if let Some(position) = media.watched().and_then(|watched| match watched {
@@ -51,7 +54,10 @@ impl Player {
     }
 
     pub fn subscription(&self) -> iced::Subscription<PlayerMessage> {
-        iced::time::every(Duration::from_secs(10)).map(|_| PlayerMessage::UpdateWatched)
+        iced::Subscription::batch([
+            iced::time::every(Duration::from_secs(10)).map(|_| PlayerMessage::UpdateWatched),
+            iced::time::every(Duration::from_secs(60)).map(|_| PlayerMessage::SaveLibrary),
+        ])
     }
 
     pub fn update(
@@ -117,6 +123,13 @@ impl Player {
                     })
                     .discard()
             }
+            PlayerMessage::ToggleSubtitles => {
+                state.settings.show_subtitles = !state.settings.show_subtitles;
+                self.video
+                    .set_subtitles_enabled(state.settings.show_subtitles);
+                state.settings.save(&state.storage_path).unwrap();
+                iced::Task::none()
+            }
             PlayerMessage::UpdateWatched => {
                 if let Some(watched) = state
                     .library
@@ -132,18 +145,53 @@ impl Player {
                             percent: (self.position / self.duration) as f32,
                         }
                     };
-                    let library = state.library.clone();
-                    let storage_path = state.storage_path.clone();
-                    iced::Task::perform(
-                        async move {
-                            library.save(&storage_path).unwrap();
-                        },
-                        |_| (),
-                    )
-                    .discard()
+                }
+                iced::Task::none()
+            }
+            PlayerMessage::SaveLibrary => {
+                let library = state.library.clone();
+                let storage_path = state.storage_path.clone();
+                iced::Task::perform(
+                    async move {
+                        library.save(&storage_path).unwrap();
+                    },
+                    |_| (),
+                )
+                .discard()
+            }
+            PlayerMessage::Previous => {
+                if let Some(previous) = library::previous_in_list(self.id, &state.library) {
+                    let (screen, task) = Player::new(previous, state);
+                    *self = screen;
+                    self.show_controls = true;
+                    task
                 } else {
                     iced::Task::none()
                 }
+            }
+            PlayerMessage::Next => {
+                if let Some(next) = library::next_in_list(self.id, &state.library) {
+                    let (screen, task) = Player::new(next, state);
+                    *self = screen;
+                    self.show_controls = true;
+                    task
+                } else {
+                    iced::Task::none()
+                }
+            }
+            PlayerMessage::SkipBackward => {
+                self.position = (self.position - 10.0).max(0.0);
+                self.video
+                    .seek(Duration::from_secs_f64(self.position), true)
+                    .unwrap();
+                iced::Task::none()
+            }
+            PlayerMessage::SkipForward => {
+                self.position = (self.position + 10.0).min(self.duration);
+                self.video
+                    .seek(Duration::from_secs_f64(self.position), true)
+                    .unwrap();
+                iced::Task::none()
             }
             _ => iced::Task::none(),
         }
@@ -352,12 +400,12 @@ impl Player {
                                                 )
                                                 .push(control_button(
                                                     icon(0xe045),
-                                                    PlayerMessage::NewFrame,
+                                                    PlayerMessage::Previous,
                                                     true,
                                                 ))
                                                 .push(control_button(
                                                     icon(0xe020),
-                                                    PlayerMessage::NewFrame,
+                                                    PlayerMessage::SkipBackward,
                                                     false,
                                                 ))
                                                 .push(control_button(
@@ -371,15 +419,32 @@ impl Player {
                                                 ))
                                                 .push(control_button(
                                                     icon(0xe01f),
-                                                    PlayerMessage::NewFrame,
+                                                    PlayerMessage::SkipForward,
                                                     false,
                                                 ))
                                                 .push(control_button(
                                                     icon(0xe044),
-                                                    PlayerMessage::NewFrame,
+                                                    PlayerMessage::Next,
                                                     true,
                                                 ))
-                                                .push(horizontal_space()),
+                                                .push(
+                                                    row![]
+                                                        .align_y(iced::Alignment::Center)
+                                                        .spacing(10.0)
+                                                        .width(iced::Length::Fill)
+                                                        .push(horizontal_space())
+                                                        .push(control_button(
+                                                            icon(
+                                                                if state.settings.show_subtitles {
+                                                                    0xe048
+                                                                } else {
+                                                                    0xef72
+                                                                },
+                                                            ),
+                                                            PlayerMessage::ToggleSubtitles,
+                                                            true,
+                                                        )),
+                                                ),
                                         ),
                                 )
                                 .padding(iced::Padding::ZERO.left(20.0).right(20.0))
@@ -434,7 +499,13 @@ pub enum PlayerMessage {
     MouseEnter,
     MouseExit,
     ToggleFullscreen,
+    ToggleSubtitles,
     UpdateWatched,
+    SaveLibrary,
+    Previous,
+    Next,
+    SkipBackward,
+    SkipForward,
 }
 
 fn control_button(

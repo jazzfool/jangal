@@ -1,9 +1,11 @@
 use chrono::{Datelike, NaiveDate};
 use futures::StreamExt;
+use itertools::Itertools;
 use normpath::PathExt;
+use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::VecDeque,
     path::{Path, PathBuf},
 };
 
@@ -15,14 +17,14 @@ pub struct MediaId(pub usize);
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Library {
-    media: HashMap<MediaId, Media>,
+    media: FxHashMap<MediaId, Media>,
     next_id: MediaId,
 }
 
 impl Library {
     pub fn new() -> Self {
         Library {
-            media: HashMap::new(),
+            media: FxHashMap::default(),
             next_id: MediaId(1),
         }
     }
@@ -164,6 +166,13 @@ pub fn find_seasons(
     })
 }
 
+pub fn find_all_episodes(
+    series: MediaId,
+    library: &Library,
+) -> impl Iterator<Item = (&MediaId, &Episode)> {
+    find_seasons(series, library).flat_map(|(season, _)| find_episodes(*season, library))
+}
+
 pub fn calculate_season_watched(season: MediaId, library: &Library) -> Watched {
     let (count, percent_sum) = find_episodes(season, library)
         .fold((0, 0.0), |(count, percent_sum), (_, episode)| {
@@ -211,6 +220,53 @@ pub fn calculate_watched(id: MediaId, library: &Library) -> Option<Watched> {
             _ => unreachable!(),
         })
     })
+}
+
+pub fn previous_in_list(id: MediaId, library: &Library) -> Option<MediaId> {
+    library.get(id).and_then(|media| match media {
+        Media::Episode(episode) => {
+            let se = (episode.metadata.season, episode.metadata.episode);
+            let mut episodes = find_all_episodes(episode.series, library)
+                .filter(|(_, e)| (e.metadata.season, e.metadata.episode) < se)
+                .collect_vec();
+            episodes.sort_unstable_by_key(|(_, episode)| {
+                (episode.metadata.season, episode.metadata.episode)
+            });
+            episodes.last().map(|(id, _)| **id)
+        }
+        _ => None,
+    })
+}
+
+pub fn next_in_list(id: MediaId, library: &Library) -> Option<MediaId> {
+    library.get(id).and_then(|media| match media {
+        Media::Episode(episode) => {
+            let se = (episode.metadata.season, episode.metadata.episode);
+            let mut episodes = find_all_episodes(episode.series, library)
+                .filter(|(_, e)| (e.metadata.season, e.metadata.episode) > se)
+                .collect_vec();
+            episodes.sort_unstable_by_key(|(_, episode)| {
+                (episode.metadata.season, episode.metadata.episode)
+            });
+            episodes.first().map(|(id, _)| **id)
+        }
+        _ => None,
+    })
+}
+
+pub fn set_watched(id: MediaId, value: Watched, library: &mut Library) {
+    // borrow library immutably first
+    let targets = match library.get(id) {
+        Some(Media::Series(_)) => find_all_episodes(id, library).map(|(id, _)| *id).collect(),
+        Some(Media::Season(_)) => find_episodes(id, library).map(|(id, _)| *id).collect(),
+        Some(_) => vec![id],
+        _ => return,
+    };
+    for id in targets {
+        if let Some(watched) = library.get_mut(id).and_then(Media::watched_mut) {
+            *watched = value;
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

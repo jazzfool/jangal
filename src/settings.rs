@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 pub struct UserSettings {
     pub tmdb_secret: String,
     pub directories: Vec<PathBuf>,
+    pub show_subtitles: bool,
 }
 
 impl UserSettings {
@@ -12,6 +13,7 @@ impl UserSettings {
         UserSettings {
             tmdb_secret: String::new(),
             directories: vec![],
+            show_subtitles: false,
         }
     }
 

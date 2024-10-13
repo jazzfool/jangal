@@ -1,6 +1,8 @@
+use std::collections::VecDeque;
+
 use super::{
     screen::{self, Screen},
-    AppState, LibraryStatus,
+    AppState, LibraryStatus, Tab,
 };
 use crate::{library, settings::UserSettings};
 
@@ -31,6 +33,7 @@ impl App {
                     settings,
 
                     library_status: LibraryStatus::Idle,
+                    tab_stack: VecDeque::from([Tab::Movies]),
                 },
             },
             task.map(Message::Home),
