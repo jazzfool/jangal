@@ -1,6 +1,11 @@
 # Jangal
 
-Desktop-centric native media explorer.
+Desktop-centric native media explorer and player.
+
+<p align="center">
+  <img src=".media/screenshot-01.png" alt="screenshot of Jangal displaying the TV Shows and Movies screens">
+  <img src=".media/screenshot-02.png" alt="screenshot of Jangal displaying the video player UI">
+</p>
 
 ## Goals
 
