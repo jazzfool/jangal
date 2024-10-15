@@ -152,7 +152,7 @@ fn episode_entry<'a>(
                 )
                 .push(text(episode.metadata.title.clone()))
                 .push(horizontal_space())
-                .push(container(watched_icon(episode.watched, false)).style(
+                .push(container(watched_icon(episode.video.watched, false)).style(
                     |theme: &iced::Theme| container::Style {
                         text_color: Some(theme.extended_palette().background.strong.color),
                         ..Default::default()

@@ -264,8 +264,7 @@ impl ScrapeResult {
             };
 
             *media = Media::Movie(Movie {
-                path: uncategorised.path.clone(),
-                watched: uncategorised.watched,
+                video: uncategorised.video.clone(),
                 metadata,
             });
         }
@@ -310,8 +309,7 @@ impl ScrapeResult {
                     };
 
                     *media = Media::Episode(Episode {
-                        path: uncategorised.path.clone(),
-                        watched: uncategorised.watched,
+                        video: uncategorised.video.clone(),
                         series: series_id,
                         season: season_id,
                         metadata,

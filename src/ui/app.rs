@@ -33,7 +33,7 @@ impl App {
                     settings,
 
                     library_status: LibraryStatus::Idle,
-                    tab_stack: VecDeque::from([Tab::Movies]),
+                    tab_stack: VecDeque::from([Tab::Home]),
                 },
             },
             task.map(Message::Home),
@@ -41,10 +41,16 @@ impl App {
     }
 
     pub fn subscription(&self) -> iced::Subscription<Message> {
-        match &self.screen {
-            AppScreen::Player(player) => player.subscription().map(Message::Player),
-            _ => iced::Subscription::none(),
-        }
+        iced::Subscription::batch([
+            match &self.screen {
+                AppScreen::Player(player) => player.subscription().map(Message::Player),
+                _ => iced::Subscription::none(),
+            },
+            iced::event::listen_with(|event, _, _| match event {
+                iced::Event::Window(iced::window::Event::CloseRequested) => Some(Message::Exit),
+                _ => None,
+            }),
+        ])
     }
 
     pub fn update(&mut self, message: Message) -> iced::Task<Message> {
@@ -102,10 +108,6 @@ impl App {
                     .update(message, &mut self.state)
                     .map(|message| Message::Player(message))
             }
-            Message::LibraryStatus(status) => {
-                self.state.library_status = status;
-                iced::Task::none()
-            }
             Message::Purge { scan } => {
                 self.state.library_status = LibraryStatus::Scanning;
 
@@ -113,7 +115,7 @@ impl App {
                     .state
                     .library
                     .iter()
-                    .filter_map(|(id, media)| Some((*id, media.path()?.to_path_buf())))
+                    .filter_map(|(id, media)| Some((*id, media.video()?.path.to_path_buf())))
                     .collect();
 
                 iced::Task::perform(
@@ -149,7 +151,10 @@ impl App {
                             if force || !uncategorised.dont_scrape =>
                         {
                             uncategorised.dont_scrape = true;
-                            Some((*id, uncategorised.path.file_name()?.to_str()?.to_string()))
+                            Some((
+                                *id,
+                                uncategorised.video.path.file_name()?.to_str()?.to_string(),
+                            ))
                         }
                         _ => None,
                     })
@@ -183,9 +188,14 @@ impl App {
             Message::ScrapeComplete(result) => {
                 self.state.library_status = LibraryStatus::Idle;
                 result.insert(&mut self.state.library);
-                self.state.library.save(&self.state.storage_path).unwrap();
-                iced::Task::none()
+                iced::Task::perform(self.state.save_library(), |_| ()).discard()
             }
+            Message::Exit => iced::Task::batch([
+                iced::Task::perform(self.state.save_library(), |_| ()),
+                iced::Task::perform(self.state.save_settings(), |_| ()),
+            ])
+            .chain(iced::exit())
+            .discard(),
         }
     }
 
@@ -204,7 +214,6 @@ pub enum Message {
     Player(screen::PlayerMessage),
     Settings(screen::SettingsMessage),
 
-    LibraryStatus(LibraryStatus),
     Purge {
         scan: bool,
     },
@@ -218,6 +227,8 @@ pub enum Message {
     },
     ScanDirectoriesComplete(Vec<library::Media>),
     ScrapeComplete(library::ScrapeResult),
+
+    Exit,
 }
 
 pub enum AppScreen {

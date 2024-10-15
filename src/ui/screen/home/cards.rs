@@ -2,10 +2,24 @@ use super::{media_menu, poster_image, search_maybe, watched_icon, HomeMessage, T
 use crate::{library, ui::icon};
 use iced::widget::{column, container, horizontal_space, hover, mouse_area, row, stack, text};
 
+pub fn sort_alphanumeric(
+    a: &(&library::MediaId, &library::Media),
+    b: &(&library::MediaId, &library::Media),
+    library: &library::Library,
+) -> std::cmp::Ordering {
+    library::full_title(*a.0, library).cmp(&library::full_title(*b.0, library))
+}
+
 pub fn card_grid<'a, 'b>(
     search: Option<&str>,
     media: impl Iterator<Item = (&'b library::MediaId, &'b library::Media)>,
     library: &library::Library,
+    sort: impl Fn(
+        &(&library::MediaId, &library::Media),
+        &(&library::MediaId, &library::Media),
+        &library::Library,
+    ) -> std::cmp::Ordering,
+    limit: Option<usize>,
 ) -> iced::Element<'a, HomeMessage> {
     row![]
         .spacing(10.0)
@@ -15,13 +29,14 @@ pub fn card_grid<'a, 'b>(
             search_maybe(
                 media,
                 search.map(|search| {
-                    |(_id, media): &(&library::MediaId, &library::Media)| {
-                        sublime_fuzzy::best_match(search, &media.full_title().unwrap_or_default())
+                    |&(id, _media): &(&library::MediaId, &library::Media)| {
+                        sublime_fuzzy::best_match(search, &library::full_title(*id, library))
                             .map(|m| m.score())
                     }
                 }),
-                |(_, a), (_, b)| a.full_title().cmp(&b.full_title()),
+                |a, b| sort(a, b, library),
             )
+            .take(limit.unwrap_or(usize::MAX))
             .map(|(id, media)| media_card(*id, media, library)),
         )
         .wrap()
@@ -45,7 +60,7 @@ fn media_card<'a>(
             .clip(true)
             .push(poster_image(poster))
             .push(
-                text(media.full_title().unwrap_or(String::from("Unknown Media")))
+                text(library::full_title(id, library))
                     .wrapping(text::Wrapping::None)
                     .size(14.0),
             ),
@@ -78,7 +93,7 @@ fn media_card<'a>(
                     ..Default::default()
                 }),
             )
-            .push_maybe(media.path().map(|_| {
+            .push_maybe(media.video().map(|_| {
                 icon(0xe037)
                     .size(36.0)
                     .width(iced::Length::Fill)

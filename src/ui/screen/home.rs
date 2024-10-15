@@ -15,10 +15,11 @@ use iced::widget::{
     scrollable, stack, text, text_input, vertical_rule,
 };
 use itertools::Itertools;
-use std::path::Path;
+use std::{path::Path, time::Duration};
 
 pub struct Home {
     search: String,
+    save_task: Option<iced::task::Handle>, // to debounce saves
 }
 
 impl Home {
@@ -26,9 +27,28 @@ impl Home {
         (
             Home {
                 search: String::new(),
+                save_task: None,
             },
             iced::Task::none(),
         )
+    }
+
+    fn save(&mut self, state: &mut AppState) -> iced::Task<HomeMessage> {
+        if let Some(task) = self.save_task.take() {
+            task.abort();
+        }
+        let fut = state.save_library();
+        let (task, handle) = iced::Task::perform(
+            async move {
+                async_std::task::sleep(Duration::from_secs(10)).await;
+                fut.await.unwrap();
+            },
+            |_| (),
+        )
+        .discard()
+        .abortable();
+        self.save_task = Some(handle);
+        task
     }
 }
 
@@ -59,11 +79,11 @@ impl Screen for Home {
             }
             HomeMessage::MarkUnwatched(id) => {
                 library::set_watched(id, library::Watched::No, &mut state.library);
-                iced::Task::none()
+                self.save(state)
             }
             HomeMessage::MarkWatched(id) => {
                 library::set_watched(id, library::Watched::Yes, &mut state.library);
-                iced::Task::none()
+                self.save(state)
             }
             _ => iced::Task::none(),
         }
@@ -87,6 +107,52 @@ impl Screen for Home {
                         container(
                             scrollable(
                                 center(match tab {
+                                    Tab::Home => column![]
+                                        .width(iced::Length::Fill)
+                                        .padding(iced::Padding::new(40.0).top(20.0).bottom(20.0))
+                                        .spacing(10.0)
+                                        .push(text("Keep watching").font(HEADER_FONT).size(24.0))
+                                        .push(cards::card_grid(
+                                            search,
+                                            state.library.iter().filter(|(_, media)| {
+                                                media.video().is_some_and(|video| {
+                                                    matches!(
+                                                        video.watched,
+                                                        library::Watched::Partial { .. }
+                                                    )
+                                                })
+                                            }),
+                                            &state.library,
+                                            |&(a_id, a), &(b_id, b), _| {
+                                                library::last_watched(*b_id, b, &state.library).cmp(
+                                                    &library::last_watched(
+                                                        *a_id,
+                                                        a,
+                                                        &state.library,
+                                                    ),
+                                                )
+                                            },
+                                            Some(20),
+                                        ))
+                                        .push(text("Recently added").font(HEADER_FONT).size(24.0))
+                                        .push(cards::card_grid(
+                                            search,
+                                            state.library.iter().filter(|(_, media)| {
+                                                media.video().is_some_and(|video| {
+                                                    (chrono::Local::now() - video.added).num_days()
+                                                        < 7
+                                                })
+                                            }),
+                                            &state.library,
+                                            |&(_a_id, a), &(_b_id, b), _| {
+                                                b.video()
+                                                    .unwrap()
+                                                    .added
+                                                    .cmp(&a.video().unwrap().added)
+                                            },
+                                            Some(20),
+                                        ))
+                                        .into(),
                                     Tab::Movies | Tab::TvShows => cards::card_grid(
                                         search,
                                         state.library.iter().filter(|(_, media)| match tab {
@@ -99,6 +165,8 @@ impl Screen for Home {
                                             _ => unreachable!(),
                                         }),
                                         &state.library,
+                                        cards::sort_alphanumeric,
+                                        None,
                                     ),
                                     Tab::TvShow(id) => seasons::season_list(
                                         search,
@@ -386,9 +454,10 @@ fn top_bar<'a>(
             )
             .push(
                 text(match tab {
+                    Tab::Home => "Home".into(),
                     Tab::Movies => "Movies".into(),
                     Tab::TvShows => "TV Shows".into(),
-                    Tab::TvShow(id) => library.get(id).unwrap().title().unwrap(),
+                    Tab::TvShow(id) => library.get(id).unwrap().title(),
                     Tab::Season(id) => {
                         let library::Media::Season(season) = library.get(id).unwrap() else {
                             panic!()
@@ -396,7 +465,7 @@ fn top_bar<'a>(
                         let series = library.get(season.series).unwrap();
                         format!(
                             "{} S{:02} - {}",
-                            series.title().unwrap(),
+                            series.title(),
                             season.metadata.season,
                             season.metadata.title
                         )

@@ -48,6 +48,7 @@ fn main() -> iced::Result {
                 window::icon::from_file_data(include_bytes!("ui/resources/icon.png"), None)
                     .unwrap(),
             ),
+            exit_on_close_request: false,
             ..Default::default()
         })
         .subscription(App::subscription)

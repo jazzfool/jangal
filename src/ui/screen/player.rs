@@ -22,20 +22,20 @@ pub struct Player {
 impl Player {
     pub fn new(id: library::MediaId, state: &AppState) -> (Self, iced::Task<PlayerMessage>) {
         let media = state.library.get(id).unwrap();
-        let path = media.path().unwrap();
+        let media = media.video().unwrap();
 
-        let mut video = Video::new(&url::Url::from_file_path(path).unwrap()).unwrap();
+        let mut video = Video::new(&url::Url::from_file_path(&media.path).unwrap()).unwrap();
         video.set_subtitles_enabled(state.settings.show_subtitles);
         video.set_subtitle_font("Sans", 16);
 
         let duration = video.duration().as_secs_f64();
 
-        if let Some(position) = media.watched().and_then(|watched| match watched {
+        if let Some(position) = match media.watched {
             library::Watched::Partial { seconds, .. } => {
                 Some(Position::Time(Duration::from_secs_f32(seconds)))
             }
             _ => None,
-        }) {
+        } {
             video.seek(position, true).unwrap();
         }
 
@@ -55,8 +55,32 @@ impl Player {
 
     pub fn subscription(&self) -> iced::Subscription<PlayerMessage> {
         iced::Subscription::batch([
-            iced::time::every(Duration::from_secs(10)).map(|_| PlayerMessage::UpdateWatched),
+            iced::time::every(Duration::from_secs(1)).map(|_| PlayerMessage::UpdateWatched),
             iced::time::every(Duration::from_secs(60)).map(|_| PlayerMessage::SaveLibrary),
+            iced::keyboard::on_key_press(|key, _| match key {
+                iced::keyboard::Key::Named(iced::keyboard::key::Named::Space) => {
+                    Some(PlayerMessage::TogglePause)
+                }
+                iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowLeft) => {
+                    Some(PlayerMessage::SkipBackward)
+                }
+                iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowRight) => {
+                    Some(PlayerMessage::SkipForward)
+                }
+                iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowUp) => {
+                    Some(PlayerMessage::VolumeUp)
+                }
+                iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowDown) => {
+                    Some(PlayerMessage::VolumeDown)
+                }
+                iced::keyboard::Key::Named(iced::keyboard::key::Named::PageUp) => {
+                    Some(PlayerMessage::Previous)
+                }
+                iced::keyboard::Key::Named(iced::keyboard::key::Named::PageDown) => {
+                    Some(PlayerMessage::Next)
+                }
+                _ => None,
+            }),
         ])
     }
 
@@ -131,13 +155,13 @@ impl Player {
                 iced::Task::none()
             }
             PlayerMessage::UpdateWatched => {
-                if let Some(watched) = state
+                if let Some(video) = state
                     .library
                     .get_mut(self.id)
-                    .and_then(library::Media::watched_mut)
+                    .and_then(library::Media::video_mut)
                 {
                     // TODO: make fully-watched threshold adjustable
-                    *watched = if self.duration - self.position < 120.0 {
+                    video.watched = if self.duration - self.position < 120.0 {
                         library::Watched::Yes
                     } else {
                         library::Watched::Partial {
@@ -145,19 +169,12 @@ impl Player {
                             percent: (self.position / self.duration) as f32,
                         }
                     };
+                    video.last_watched = Some(chrono::Local::now());
                 }
                 iced::Task::none()
             }
             PlayerMessage::SaveLibrary => {
-                let library = state.library.clone();
-                let storage_path = state.storage_path.clone();
-                iced::Task::perform(
-                    async move {
-                        library.save(&storage_path).unwrap();
-                    },
-                    |_| (),
-                )
-                .discard()
+                iced::Task::perform(state.save_library(), |_| ()).discard()
             }
             PlayerMessage::Previous => {
                 if let Some(previous) = library::previous_in_list(self.id, &state.library) {
@@ -193,6 +210,16 @@ impl Player {
                     .unwrap();
                 iced::Task::none()
             }
+            PlayerMessage::VolumeUp => {
+                self.video
+                    .set_volume((self.video.volume() + 0.1).clamp(0.0, 1.0));
+                iced::Task::none()
+            }
+            PlayerMessage::VolumeDown => {
+                self.video
+                    .set_volume((self.video.volume() - 0.1).clamp(0.0, 1.0));
+                iced::Task::none()
+            }
             _ => iced::Task::none(),
         }
     }
@@ -217,7 +244,7 @@ impl Player {
                     episode.metadata.title
                 )
             }
-            Some(media) => media.full_title().unwrap_or("Unknown Media".into()),
+            Some(_) => library::full_title(self.id, &state.library),
             None => "Unknown Media".into(),
         };
 
@@ -506,6 +533,8 @@ pub enum PlayerMessage {
     Next,
     SkipBackward,
     SkipForward,
+    VolumeUp,
+    VolumeDown,
 }
 
 fn control_button(

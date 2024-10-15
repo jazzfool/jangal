@@ -9,6 +9,7 @@ pub fn sidebar<'a>(status: LibraryStatus) -> iced::Element<'a, HomeMessage> {
         column![]
             .padding(5.0)
             .spacing(5.0)
+            .push(sidebar_button(0xe88a, "Home").on_press(HomeMessage::Goto(Tab::Home)))
             .push(sidebar_button(0xe02c, "Movies").on_press(HomeMessage::Goto(Tab::Movies)))
             .push(sidebar_button(0xe639, "TV Shows").on_press(HomeMessage::Goto(Tab::TvShows)))
             .push(vertical_space())

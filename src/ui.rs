@@ -6,10 +6,11 @@ pub use menu_button::menu_button;
 
 use crate::{library, settings::UserSettings};
 use iced::widget::{button, container, scrollable, text, text_input};
-use std::{collections::VecDeque, path::PathBuf};
+use std::{collections::VecDeque, future::Future, path::PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Tab {
+    Home,
     Movies,
     TvShows,
     TvShow(library::MediaId),
@@ -35,6 +36,26 @@ pub struct AppState {
 
     pub library_status: LibraryStatus,
     pub tab_stack: VecDeque<Tab>,
+}
+
+impl AppState {
+    pub fn save_library<'a, 'b>(&'a self) -> impl Future<Output = anyhow::Result<()>> + 'b {
+        let library = self.library.clone();
+        let storage_path = self.storage_path.clone();
+        async move {
+            library.save(&storage_path)?;
+            Ok(())
+        }
+    }
+
+    pub fn save_settings<'a, 'b>(&'a self) -> impl Future<Output = anyhow::Result<()>> + 'b {
+        let settings = self.settings.clone();
+        let storage_path = self.storage_path.clone();
+        async move {
+            settings.save(&storage_path)?;
+            Ok(())
+        }
+    }
 }
 
 pub const SANS_FONT: iced::Font = iced::Font {
