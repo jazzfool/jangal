@@ -24,6 +24,7 @@ serde_json = "1.0.128"
 sublime_fuzzy = "0.7.0"
 tmdb-api = { git = "https://github.com/jazzfool/tmdb-api" }
 url = "2.5.2"
+keepawake = "0.5"
 
 [profile.release-debug]
 inherits = "release"

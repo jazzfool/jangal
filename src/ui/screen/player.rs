@@ -17,6 +17,7 @@ pub struct Player {
     dragging: bool,
     show_controls: bool,
     is_fullscreen: bool,
+    _keep_awake: keepawake::KeepAwake,
 }
 
 impl Player {
@@ -39,6 +40,14 @@ impl Player {
             video.seek(position, true).unwrap();
         }
 
+        let _keep_awake = keepawake::Builder::default()
+            .display(true)
+            .reason("Video Playback")
+            .app_name("Jangal")
+            .app_reverse_domain("io.github.jangal")
+            .create()
+            .expect("keep awake");
+
         (
             Player {
                 id,
@@ -48,6 +57,7 @@ impl Player {
                 dragging: false,
                 show_controls: false,
                 is_fullscreen: false,
+                _keep_awake,
             },
             iced::Task::none(),
         )

@@ -6,7 +6,12 @@ pub use menu_button::menu_button;
 
 use crate::{library, settings::UserSettings};
 use iced::widget::{button, container, scrollable, text, text_input};
-use std::{collections::VecDeque, future::Future, path::PathBuf};
+use std::{
+    collections::VecDeque,
+    future::Future,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Tab {
@@ -19,7 +24,8 @@ pub enum Tab {
 
 impl Tab {
     pub fn overwrites(&self, other: Tab) -> bool {
-        matches!(self, Tab::Movies | Tab::TvShows) && matches!(other, Tab::Movies | Tab::TvShows)
+        matches!(self, Tab::Home | Tab::Movies | Tab::TvShows)
+            && matches!(other, Tab::Home | Tab::Movies | Tab::TvShows)
     }
 }
 
@@ -92,6 +98,19 @@ pub fn truncate_text(text: &str, max_len: usize) -> String {
     } else {
         text.into()
     }
+}
+
+#[cfg(target_os = "windows")]
+const OPEN_CMD: &str = "explorer";
+
+#[cfg(target_os = "macos")]
+const OPEN_CMD: &str = "open";
+
+#[cfg(target_os = "linux")]
+const OPEN_CMD: &str = "xdg-open";
+
+pub fn open_path(p: impl AsRef<Path>) {
+    let _ = Command::new(OPEN_CMD).arg(p.as_ref().as_os_str()).spawn();
 }
 
 pub fn clear_button(theme: &iced::Theme, status: button::Status) -> button::Style {

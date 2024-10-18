@@ -6,8 +6,8 @@ use super::Screen;
 use crate::{
     library,
     ui::{
-        clear_button, clear_scrollable, flat_text_input, icon, menu_button, AppState, Tab,
-        HEADER_FONT, ICON_FONT,
+        clear_button, clear_scrollable, flat_text_input, icon, menu_button, open_path, AppState,
+        Tab, HEADER_FONT, ICON_FONT,
     },
 };
 use iced::widget::{
@@ -15,7 +15,10 @@ use iced::widget::{
     scrollable, stack, text, text_input, vertical_rule,
 };
 use itertools::Itertools;
-use std::{path::Path, time::Duration};
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 pub struct Home {
     search: String,
@@ -73,7 +76,7 @@ impl Screen for Home {
             HomeMessage::Back => {
                 state.tab_stack.pop_back();
                 if state.tab_stack.is_empty() {
-                    state.tab_stack.push_back(Tab::Movies);
+                    state.tab_stack.push_back(Tab::Home);
                 }
                 iced::Task::none()
             }
@@ -84,6 +87,10 @@ impl Screen for Home {
             HomeMessage::MarkWatched(id) => {
                 library::set_watched(id, library::Watched::Yes, &mut state.library);
                 self.save(state)
+            }
+            HomeMessage::OpenDirectory(path) => {
+                open_path(&path);
+                iced::Task::none()
             }
             _ => iced::Task::none(),
         }
@@ -242,6 +249,7 @@ pub enum HomeMessage {
     Back,
     MarkWatched(library::MediaId),
     MarkUnwatched(library::MediaId),
+    OpenDirectory(PathBuf),
 }
 
 fn poster_image<'a>(poster: Option<&Path>) -> iced::Element<'a, HomeMessage> {
@@ -367,10 +375,14 @@ fn search_maybe<T>(
     .map(|(_, x)| x)
 }
 
-fn media_menu<'a>(
+fn media_menu<'a, 'b>(
     id: library::MediaId,
-    library: &library::Library,
+    library: &'b library::Library,
 ) -> iced::Element<'a, HomeMessage> {
+    let media = library.get(id).unwrap();
+    let path = media
+        .video()
+        .map(|video| video.path.parent().unwrap().to_path_buf());
     let watched = library::calculate_watched(id, library).unwrap_or(library::Watched::No);
 
     menu_button(
@@ -378,6 +390,10 @@ fn media_menu<'a>(
         move || {
             container(
                 column![]
+                    .push_maybe(path.clone().map(|path| {
+                        menu_item(0xe89e, "Open file directory")
+                            .on_press(HomeMessage::OpenDirectory(path))
+                    }))
                     .push_maybe(
                         matches!(
                             watched,
