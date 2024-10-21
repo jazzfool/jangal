@@ -1,13 +1,25 @@
+mod seekbar;
+
 use crate::{
     library,
     ui::{icon, AppState},
 };
 use iced::widget::{
-    button, center, column, container, horizontal_space, mouse_area, row, slider, stack, text,
-    vertical_space,
+    button, center, column, container, horizontal_space, image, mouse_area, row, slider, stack,
+    text, vertical_space,
 };
 use iced_video_player::{Position, Video, VideoPlayer};
-use std::time::Duration;
+use std::{num::NonZeroU8, time::Duration};
+
+fn keep_awake() -> keepawake::KeepAwake {
+    keepawake::Builder::default()
+        .display(true)
+        .reason("Video Playback")
+        .app_name("Jangal")
+        .app_reverse_domain("io.github.jangal")
+        .create()
+        .expect("keep awake")
+}
 
 pub struct Player {
     id: library::MediaId,
@@ -17,7 +29,8 @@ pub struct Player {
     dragging: bool,
     show_controls: bool,
     is_fullscreen: bool,
-    _keep_awake: keepawake::KeepAwake,
+    thumbnails: Vec<image::Handle>,
+    _keep_awake: Option<keepawake::KeepAwake>,
 }
 
 impl Player {
@@ -40,13 +53,13 @@ impl Player {
             video.seek(position, true).unwrap();
         }
 
-        let _keep_awake = keepawake::Builder::default()
-            .display(true)
-            .reason("Video Playback")
-            .app_name("Jangal")
-            .app_reverse_domain("io.github.jangal")
-            .create()
-            .expect("keep awake");
+        let thumbnails = video
+            .thumbnails(
+                (0..32)
+                    .map(|i| Position::Time(Duration::from_secs_f64(duration * (i as f64 / 32.0)))),
+                NonZeroU8::new(8).unwrap(/* invariant */),
+            )
+            .expect("thumbnails");
 
         (
             Player {
@@ -57,7 +70,8 @@ impl Player {
                 dragging: false,
                 show_controls: false,
                 is_fullscreen: false,
-                _keep_awake,
+                thumbnails,
+                _keep_awake: Some(keep_awake()),
             },
             iced::Task::none(),
         )
@@ -127,6 +141,7 @@ impl Player {
             }
             PlayerMessage::TogglePause => {
                 self.video.set_paused(!self.video.paused());
+                self._keep_awake = (!self.video.paused()).then(|| keep_awake());
                 iced::Task::none()
             }
             PlayerMessage::ToggleMute => {
@@ -347,50 +362,14 @@ impl Player {
                                                     .width(80.0),
                                                 )
                                                 .push(
-                                                    slider(
+                                                    seekbar::seekbar(
                                                         0.0..=self.video.duration().as_secs_f64(),
+                                                        self.video.duration(),
                                                         self.position,
+                                                        self.thumbnails.clone(),
                                                         PlayerMessage::Seek,
                                                     )
                                                     .step(0.1)
-                                                    .style(|_theme: &iced::Theme, _| {
-                                                        slider::Style {
-                                                            rail: slider::Rail {
-                                                                backgrounds: (
-                                                                    iced::Background::Color(
-                                                                        iced::Color::from_rgba8(
-                                                                            245, 245, 245, 0.9,
-                                                                        ),
-                                                                    ),
-                                                                    iced::Background::Color(
-                                                                        iced::Color::from_rgba8(
-                                                                            150, 150, 150, 0.7,
-                                                                        ),
-                                                                    ),
-                                                                ),
-                                                                width: 3.0,
-                                                                border: iced::Border::default(),
-                                                            },
-                                                            handle: slider::Handle {
-                                                                shape:
-                                                                    slider::HandleShape::Rectangle {
-                                                                        width: 7,
-                                                                        border_radius:
-                                                                            iced::border::radius(
-                                                                                2.0,
-                                                                            ),
-                                                                    },
-                                                                background: iced::Background::Color(
-                                                                    iced::Color::from_rgba8(
-                                                                        245, 245, 245, 0.9,
-                                                                    ),
-                                                                ),
-                                                                border_width: 1.0,
-                                                                border_color: iced::Color::BLACK,
-                                                            },
-                                                        }
-                                                    })
-                                                    .height(20.0)
                                                     .on_release(PlayerMessage::SeekRelease),
                                                 )
                                                 .push(
@@ -484,18 +463,14 @@ impl Player {
                                                 ),
                                         ),
                                 )
-                                .padding(iced::Padding::ZERO.left(20.0).right(20.0))
+                                .padding(iced::Padding::new(20.0))
                                 .style(|_| container::Style {
                                     background: Some(iced::Background::Gradient(
                                         iced::Gradient::Linear(
                                             iced::gradient::Linear::new(0.0)
                                                 .add_stop(
                                                     0.0,
-                                                    iced::Color::from_rgba8(0, 0, 0, 0.9),
-                                                )
-                                                .add_stop(
-                                                    0.5,
-                                                    iced::Color::from_rgba8(0, 0, 0, 0.7),
+                                                    iced::Color::from_rgba8(0, 0, 0, 0.95),
                                                 )
                                                 .add_stop(
                                                     1.0,
@@ -505,13 +480,13 @@ impl Player {
                                     )),
                                     ..Default::default()
                                 })
-                                .align_y(iced::Alignment::Center)
+                                .align_y(iced::Alignment::End)
                                 .width(iced::Length::Fill)
-                                .height(120.0)
+                                .height(160.0)
                                 .into()
                             } else {
                                 iced::Element::from(
-                                    vertical_space().width(iced::Length::Fill).height(120.0),
+                                    vertical_space().width(iced::Length::Fill).height(160.0),
                                 )
                             })
                             .on_enter(PlayerMessage::MouseEnter)
