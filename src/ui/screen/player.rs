@@ -9,7 +9,7 @@ use iced::widget::{
     text, vertical_space,
 };
 use iced_video_player::{Position, Video, VideoPlayer};
-use std::{num::NonZeroU8, time::Duration};
+use std::{num::NonZeroU8, path::Path, time::Duration};
 
 fn keep_awake() -> keepawake::KeepAwake {
     keepawake::Builder::default()
@@ -19,6 +19,13 @@ fn keep_awake() -> keepawake::KeepAwake {
         .app_reverse_domain("io.github.jangal")
         .create()
         .expect("keep awake")
+}
+
+fn load_video(path: &Path, state: &AppState) -> Video {
+    let mut video = Video::new(&url::Url::from_file_path(path).unwrap()).unwrap();
+    video.set_subtitles_enabled(state.settings.show_subtitles);
+    video.set_subtitle_font("Sans", 16);
+    video
 }
 
 pub struct Player {
@@ -38,10 +45,7 @@ impl Player {
         let media = state.library.get(id).unwrap();
         let media = media.video().unwrap();
 
-        let mut video = Video::new(&url::Url::from_file_path(&media.path).unwrap()).unwrap();
-        video.set_subtitles_enabled(state.settings.show_subtitles);
-        video.set_subtitle_font("Sans", 16);
-
+        let mut video = load_video(&media.path, state);
         let duration = video.duration().as_secs_f64();
 
         if let Some(position) = match media.watched {
@@ -53,13 +57,17 @@ impl Player {
             video.seek(position, true).unwrap();
         }
 
-        let thumbnails = video
-            .thumbnails(
-                (0..32)
-                    .map(|i| Position::Time(Duration::from_secs_f64(duration * (i as f64 / 32.0)))),
-                NonZeroU8::new(8).unwrap(/* invariant */),
-            )
-            .expect("thumbnails");
+        let mut headless = load_video(&media.path, state);
+        let thumbnails_fut = async move {
+            headless
+                .thumbnails(
+                    (0..32).map(|i| {
+                        Position::Time(Duration::from_secs_f64(duration * (i as f64 / 32.0)))
+                    }),
+                    NonZeroU8::new(8).unwrap(/* invariant */),
+                )
+                .expect("thumbnails")
+        };
 
         (
             Player {
@@ -70,10 +78,10 @@ impl Player {
                 dragging: false,
                 show_controls: false,
                 is_fullscreen: false,
-                thumbnails,
+                thumbnails: vec![],
                 _keep_awake: Some(keep_awake()),
             },
-            iced::Task::none(),
+            iced::Task::perform(thumbnails_fut, PlayerMessage::Thumbnails),
         )
     }
 
@@ -118,6 +126,10 @@ impl Player {
                 if !self.dragging {
                     self.position = self.video.position().as_secs_f64();
                 }
+                iced::Task::none()
+            }
+            PlayerMessage::Thumbnails(thumbnails) => {
+                self.thumbnails = thumbnails;
                 iced::Task::none()
             }
             PlayerMessage::Seek(secs) => {
@@ -203,9 +215,11 @@ impl Player {
             }
             PlayerMessage::Previous => {
                 if let Some(previous) = library::previous_in_list(self.id, &state.library) {
+                    let Player { is_fullscreen, .. } = *self;
                     let (screen, task) = Player::new(previous, state);
                     *self = screen;
                     self.show_controls = true;
+                    self.is_fullscreen = is_fullscreen;
                     task
                 } else {
                     iced::Task::none()
@@ -213,9 +227,11 @@ impl Player {
             }
             PlayerMessage::Next => {
                 if let Some(next) = library::next_in_list(self.id, &state.library) {
+                    let Player { is_fullscreen, .. } = *self;
                     let (screen, task) = Player::new(next, state);
                     *self = screen;
                     self.show_controls = true;
+                    self.is_fullscreen = is_fullscreen;
                     task
                 } else {
                     iced::Task::none()
@@ -294,204 +310,15 @@ impl Player {
                     column![]
                         .width(iced::Length::Fill)
                         .height(iced::Length::Fill)
-                        .push(
-                            mouse_area(if self.show_controls {
-                                container(
-                                    row![]
-                                        .spacing(20.0)
-                                        .align_y(iced::Alignment::Center)
-                                        .push(control_button(
-                                            icon(0xe5c4),
-                                            PlayerMessage::Back,
-                                            false,
-                                        ))
-                                        .push(text(title))
-                                        .push(horizontal_space())
-                                        .push(control_button(
-                                            icon(if self.is_fullscreen { 0xf1cf } else { 0xf1ce }),
-                                            PlayerMessage::ToggleFullscreen,
-                                            false,
-                                        )),
-                                )
-                                .style(|_| container::Style {
-                                    background: Some(iced::Background::Gradient(
-                                        iced::Gradient::Linear(
-                                            iced::gradient::Linear::new(0.0)
-                                                .add_stop(
-                                                    0.0,
-                                                    iced::Color::from_rgba8(0, 0, 0, 0.0),
-                                                )
-                                                .add_stop(
-                                                    1.0,
-                                                    iced::Color::from_rgba8(0, 0, 0, 0.8),
-                                                ),
-                                        ),
-                                    )),
-                                    ..Default::default()
-                                })
-                                .padding(iced::Padding::ZERO.left(20.0).right(20.0))
-                                .align_y(iced::Alignment::Center)
-                                .width(iced::Length::Fill)
-                                .height(60.0)
-                                .into()
-                            } else {
-                                iced::Element::from(
-                                    vertical_space().width(iced::Length::Fill).height(60.0),
-                                )
-                            })
-                            .on_enter(PlayerMessage::MouseEnter)
-                            .on_exit(PlayerMessage::MouseExit),
-                        )
+                        .push(top_bar(self.show_controls, title, self.is_fullscreen))
                         .push(vertical_space().height(iced::Length::Fill))
-                        .push(
-                            mouse_area(if self.show_controls {
-                                container(
-                                    column![]
-                                        .spacing(15.0)
-                                        .push(
-                                            row![]
-                                                .align_y(iced::Alignment::Center)
-                                                .spacing(10.0)
-                                                .push(
-                                                    text(format!(
-                                                        "{:02}:{:02}:{:02}",
-                                                        self.position as u64 / 3600,
-                                                        self.position as u64 % 3600 / 60,
-                                                        self.position as u64 % 60
-                                                    ))
-                                                    .width(80.0),
-                                                )
-                                                .push(
-                                                    seekbar::seekbar(
-                                                        0.0..=self.video.duration().as_secs_f64(),
-                                                        self.video.duration(),
-                                                        self.position,
-                                                        self.thumbnails.clone(),
-                                                        PlayerMessage::Seek,
-                                                    )
-                                                    .step(0.1)
-                                                    .on_release(PlayerMessage::SeekRelease),
-                                                )
-                                                .push(
-                                                    text(format!(
-                                                        "{:02}:{:02}:{:02}",
-                                                        self.video.duration().as_secs() as u64
-                                                            / 3600,
-                                                        self.video.duration().as_secs() as u64
-                                                            % 3600
-                                                            / 60,
-                                                        self.video.duration().as_secs() as u64 % 60
-                                                    ))
-                                                    .width(80.0)
-                                                    .align_x(iced::Alignment::End),
-                                                ),
-                                        )
-                                        .push(
-                                            row![]
-                                                .spacing(10.0)
-                                                .align_y(iced::Alignment::Center)
-                                                .push(
-                                                    row![]
-                                                        .align_y(iced::Alignment::Center)
-                                                        .spacing(10.0)
-                                                        .width(iced::Length::Fill)
-                                                        .push(control_button(
-                                                            icon(if self.video.muted() {
-                                                                0xe04f
-                                                            } else {
-                                                                0xe050
-                                                            }),
-                                                            PlayerMessage::ToggleMute,
-                                                            true,
-                                                        ))
-                                                        .push(
-                                                            slider(
-                                                                0.0..=1.0,
-                                                                self.video.volume(),
-                                                                PlayerMessage::Volume,
-                                                            )
-                                                            .step(0.05)
-                                                            .width(100.0),
-                                                        ),
-                                                )
-                                                .push(control_button(
-                                                    icon(0xe045),
-                                                    PlayerMessage::Previous,
-                                                    true,
-                                                ))
-                                                .push(control_button(
-                                                    icon(0xe020),
-                                                    PlayerMessage::SkipBackward,
-                                                    false,
-                                                ))
-                                                .push(control_button(
-                                                    icon(if self.video.paused() {
-                                                        0xe037
-                                                    } else {
-                                                        0xe034
-                                                    }),
-                                                    PlayerMessage::TogglePause,
-                                                    false,
-                                                ))
-                                                .push(control_button(
-                                                    icon(0xe01f),
-                                                    PlayerMessage::SkipForward,
-                                                    false,
-                                                ))
-                                                .push(control_button(
-                                                    icon(0xe044),
-                                                    PlayerMessage::Next,
-                                                    true,
-                                                ))
-                                                .push(
-                                                    row![]
-                                                        .align_y(iced::Alignment::Center)
-                                                        .spacing(10.0)
-                                                        .width(iced::Length::Fill)
-                                                        .push(horizontal_space())
-                                                        .push(control_button(
-                                                            icon(
-                                                                if state.settings.show_subtitles {
-                                                                    0xe048
-                                                                } else {
-                                                                    0xef72
-                                                                },
-                                                            ),
-                                                            PlayerMessage::ToggleSubtitles,
-                                                            true,
-                                                        )),
-                                                ),
-                                        ),
-                                )
-                                .padding(iced::Padding::new(20.0))
-                                .style(|_| container::Style {
-                                    background: Some(iced::Background::Gradient(
-                                        iced::Gradient::Linear(
-                                            iced::gradient::Linear::new(0.0)
-                                                .add_stop(
-                                                    0.0,
-                                                    iced::Color::from_rgba8(0, 0, 0, 0.95),
-                                                )
-                                                .add_stop(
-                                                    1.0,
-                                                    iced::Color::from_rgba8(0, 0, 0, 0.0),
-                                                ),
-                                        ),
-                                    )),
-                                    ..Default::default()
-                                })
-                                .align_y(iced::Alignment::End)
-                                .width(iced::Length::Fill)
-                                .height(160.0)
-                                .into()
-                            } else {
-                                iced::Element::from(
-                                    vertical_space().width(iced::Length::Fill).height(160.0),
-                                )
-                            })
-                            .on_enter(PlayerMessage::MouseEnter)
-                            .on_exit(PlayerMessage::MouseExit),
-                        ),
+                        .push(bottom_bar(
+                            self.show_controls,
+                            self.position,
+                            self.thumbnails.clone(),
+                            &self.video,
+                            state,
+                        )),
                 ),
         )
         .on_press(PlayerMessage::TogglePause)
@@ -502,6 +329,7 @@ impl Player {
 #[derive(Debug, Clone)]
 pub enum PlayerMessage {
     NewFrame,
+    Thumbnails(Vec<image::Handle>),
     Seek(f64),
     SeekRelease,
     Volume(f64),
@@ -520,6 +348,181 @@ pub enum PlayerMessage {
     SkipForward,
     VolumeUp,
     VolumeDown,
+}
+
+fn top_bar<'a>(show: bool, title: String, is_fullscreen: bool) -> iced::Element<'a, PlayerMessage> {
+    mouse_area(if show {
+        container(
+            row![]
+                .spacing(20.0)
+                .align_y(iced::Alignment::Center)
+                .push(control_button(icon(0xe5c4), PlayerMessage::Back, false))
+                .push(text(title))
+                .push(horizontal_space())
+                .push(control_button(
+                    icon(if is_fullscreen { 0xe5d1 } else { 0xe5d0 }),
+                    PlayerMessage::ToggleFullscreen,
+                    false,
+                )),
+        )
+        .style(|_| container::Style {
+            background: Some(iced::Background::Gradient(iced::Gradient::Linear(
+                iced::gradient::Linear::new(0.0)
+                    .add_stop(0.0, iced::Color::from_rgba8(0, 0, 0, 0.0))
+                    .add_stop(1.0, iced::Color::from_rgba8(0, 0, 0, 0.8)),
+            ))),
+            ..Default::default()
+        })
+        .padding(iced::Padding::ZERO.left(20.0).right(20.0))
+        .align_y(iced::Alignment::Center)
+        .width(iced::Length::Fill)
+        .height(60.0)
+        .into()
+    } else {
+        iced::Element::from(vertical_space().width(iced::Length::Fill).height(60.0))
+    })
+    .on_enter(PlayerMessage::MouseEnter)
+    .on_exit(PlayerMessage::MouseExit)
+    .into()
+}
+
+fn bottom_bar<'a>(
+    show: bool,
+    position: f64,
+    thumbnails: Vec<image::Handle>,
+    video: &Video,
+    state: &AppState,
+) -> iced::Element<'a, PlayerMessage> {
+    fn seek_controls<'a>(
+        position: f64,
+        thumbnails: Vec<image::Handle>,
+        video: &Video,
+    ) -> iced::Element<'a, PlayerMessage> {
+        row![]
+            .align_y(iced::Alignment::Center)
+            .spacing(10.0)
+            .push(
+                text(format!(
+                    "{:02}:{:02}:{:02}",
+                    position as u64 / 3600,
+                    position as u64 % 3600 / 60,
+                    position as u64 % 60
+                ))
+                .width(80.0),
+            )
+            .push(
+                seekbar::seekbar(
+                    0.0..=video.duration().as_secs_f64(),
+                    video.duration(),
+                    position,
+                    thumbnails,
+                    PlayerMessage::Seek,
+                )
+                .step(0.1)
+                .on_release(PlayerMessage::SeekRelease),
+            )
+            .push(
+                text(format!(
+                    "{:02}:{:02}:{:02}",
+                    video.duration().as_secs() as u64 / 3600,
+                    video.duration().as_secs() as u64 % 3600 / 60,
+                    video.duration().as_secs() as u64 % 60
+                ))
+                .width(80.0)
+                .align_x(iced::Alignment::End),
+            )
+            .into()
+    }
+
+    fn media_controls<'a>(video: &Video, state: &AppState) -> iced::Element<'a, PlayerMessage> {
+        row![]
+            .spacing(10.0)
+            .align_y(iced::Alignment::Center)
+            .push(
+                // volume controls
+                row![]
+                    .align_y(iced::Alignment::Center)
+                    .spacing(10.0)
+                    .width(iced::Length::Fill)
+                    .push(control_button(
+                        icon(if video.muted() { 0xe04f } else { 0xe050 }),
+                        PlayerMessage::ToggleMute,
+                        true,
+                    ))
+                    .push(
+                        slider(0.0..=1.0, video.volume(), PlayerMessage::Volume)
+                            .step(0.05)
+                            .width(100.0),
+                    ),
+            )
+            // previous
+            .push(control_button(icon(0xe045), PlayerMessage::Previous, true))
+            // skip back
+            .push(control_button(
+                icon(0xe020),
+                PlayerMessage::SkipBackward,
+                false,
+            ))
+            // play/pause
+            .push(control_button(
+                icon(if video.paused() { 0xe037 } else { 0xe034 }),
+                PlayerMessage::TogglePause,
+                false,
+            ))
+            // skip forward
+            .push(control_button(
+                icon(0xe01f),
+                PlayerMessage::SkipForward,
+                false,
+            ))
+            // next
+            .push(control_button(icon(0xe044), PlayerMessage::Next, true))
+            // subtitle controls
+            .push(
+                row![]
+                    .align_y(iced::Alignment::Center)
+                    .spacing(10.0)
+                    .width(iced::Length::Fill)
+                    .push(horizontal_space())
+                    .push(control_button(
+                        icon(if state.settings.show_subtitles {
+                            0xe048
+                        } else {
+                            0xef72
+                        }),
+                        PlayerMessage::ToggleSubtitles,
+                        true,
+                    )),
+            )
+            .into()
+    }
+
+    mouse_area(if show {
+        container(
+            column![]
+                .spacing(15.0)
+                .push(seek_controls(position, thumbnails, video))
+                .push(media_controls(video, state)),
+        )
+        .padding(iced::Padding::new(20.0))
+        .style(|_| container::Style {
+            background: Some(iced::Background::Gradient(iced::Gradient::Linear(
+                iced::gradient::Linear::new(0.0)
+                    .add_stop(0.0, iced::Color::from_rgba8(0, 0, 0, 0.95))
+                    .add_stop(1.0, iced::Color::from_rgba8(0, 0, 0, 0.0)),
+            ))),
+            ..Default::default()
+        })
+        .align_y(iced::Alignment::End)
+        .width(iced::Length::Fill)
+        .height(160.0)
+        .into()
+    } else {
+        iced::Element::from(vertical_space().width(iced::Length::Fill).height(160.0))
+    })
+    .on_enter(PlayerMessage::MouseEnter)
+    .on_exit(PlayerMessage::MouseExit)
+    .into()
 }
 
 fn control_button(
