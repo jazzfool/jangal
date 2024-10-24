@@ -305,7 +305,7 @@ where
                 bounds: iced::Rectangle {
                     x: bounds.x,
                     y: rail_y - rail_width / 2.0,
-                    width: offset + handle_width / 2.0 - rail_gap,
+                    width: (offset + handle_width / 2.0 - rail_gap).max(0.0),
                     height: rail_width,
                 },
                 border: Default::default(),
@@ -319,7 +319,7 @@ where
                 bounds: iced::Rectangle {
                     x: bounds.x + offset + handle_width / 2.0 + rail_gap,
                     y: rail_y - rail_width / 2.0,
-                    width: bounds.width - offset - handle_width / 2.0 - rail_gap,
+                    width: (bounds.width - offset - handle_width / 2.0 - rail_gap).max(0.0),
                     height: rail_width,
                 },
                 border: Default::default(),
@@ -376,9 +376,13 @@ where
 
         let cursor_percent =
             (state.cursor_location - *self.range.start()) / (self.range.end() - self.range.start());
-        let image_size = renderer.measure_image(&self.thumbnails[0]);
+        let image_size = self
+            .thumbnails
+            .first()
+            .map(|img| renderer.measure_image(img))
+            .unwrap_or_default();
         let image_index = (cursor_percent * self.thumbnails.len() as Value) as usize;
-        let image_index = image_index.min(self.thumbnails.len());
+        let image_index = image_index.min(self.thumbnails.len() - 1);
 
         let position = (cursor_percent * self.duration.as_secs_f64()) as u64;
         let timestamp = format!(
@@ -389,26 +393,34 @@ where
         );
 
         (state.is_hovered || state.is_dragging).then(|| {
-            advanced::overlay::Group::with_children(vec![
-                advanced::overlay::Element::new(Box::new(ThumbnailOverlay {
-                    position: layout.position() + translation,
-                    content_bounds: layout.bounds(),
-                    image: self.thumbnails[image_index].clone(),
-                    image_size: iced::Size::new(
-                        image_size.width as f32 / image_size.height as f32 * 100.0,
-                        100.0,
-                    ),
-                    cursor_position: state.cursor_position,
-                })),
-                advanced::overlay::Element::new(Box::new(TimestampOverlay {
+            let mut overlay = vec![];
+
+            if let Some(image) = self.thumbnails.get(image_index).cloned() {
+                overlay.push(advanced::overlay::Element::new(Box::new(
+                    ThumbnailOverlay {
+                        position: layout.position() + translation,
+                        content_bounds: layout.bounds(),
+                        image,
+                        image_size: iced::Size::new(
+                            image_size.width as f32 / image_size.height as f32 * 100.0,
+                            100.0,
+                        ),
+                        cursor_position: state.cursor_position,
+                    },
+                )));
+            }
+
+            overlay.push(advanced::overlay::Element::new(Box::new(
+                TimestampOverlay {
                     position: layout.position() + translation,
                     content_bounds: layout.bounds(),
                     timestamp,
                     size: iced::Size::new(80.0, 20.0),
                     cursor_position: state.cursor_position,
-                })),
-            ])
-            .overlay()
+                },
+            )));
+
+            advanced::overlay::Group::with_children(overlay).overlay()
         })
     }
 }
