@@ -79,7 +79,7 @@ pub const HEADER_FONT: iced::Font = iced::Font {
 };
 
 pub const MONO_FONT: iced::Font = iced::Font {
-    family: iced::font::Family::Name("Courier Prime"),
+    family: iced::font::Family::Name("IBM Plex Mono"),
     weight: iced::font::Weight::Normal,
     stretch: iced::font::Stretch::Normal,
     style: iced::font::Style::Normal,

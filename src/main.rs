@@ -41,7 +41,7 @@ fn main() -> iced::Result {
                 include_bytes!("ui/resources/WorkSans-Italic.ttf").into(),
                 include_bytes!("ui/resources/WorkSans-BoldItalic.ttf").into(),
                 include_bytes!("ui/resources/Lexend-Regular.ttf").into(),
-                include_bytes!("ui/resources/CourierPrime-Regular.ttf").into(),
+                include_bytes!("ui/resources/IBMPlexMono-Regular.ttf").into(),
                 include_bytes!("ui/resources/MaterialSymbolsSharp_Filled-Regular.ttf").into(),
             ],
             default_font: ui::SANS_FONT,
