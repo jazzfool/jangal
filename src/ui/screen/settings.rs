@@ -67,8 +67,16 @@ impl Screen for Settings {
                 state.settings.tmdb_secret = secret;
                 iced::Task::none()
             }
-            SettingsMessage::Save => {
-                state.settings.save(&state.storage_path).unwrap();
+            SettingsMessage::WatchThresholdMovies(minutes) => {
+                if let Ok(minutes) = minutes.parse() {
+                    state.settings.watch_threshold_movies = minutes;
+                }
+                iced::Task::none()
+            }
+            SettingsMessage::WatchThresholdEpisodes(minutes) => {
+                if let Ok(minutes) = minutes.parse() {
+                    state.settings.watch_threshold_episodes = minutes;
+                }
                 iced::Task::none()
             }
             _ => iced::Task::none(),
@@ -139,11 +147,7 @@ impl Screen for Settings {
                                                 .map(|(i, path)| {
                                                     row![]
                                                     .align_y(iced::Alignment::Center)
-                                                    .push(
-                                                        text(path.to_str().unwrap().to_string())
-                                                            .font(MONO_FONT),
-                                                    )
-                                                    .push(horizontal_space())
+                                                    .spacing(10.0)
                                                     .push(
                                                         button(icon(0xe15b).size(20.0))
                                                             .style(clear_button)
@@ -151,6 +155,11 @@ impl Screen for Settings {
                                                                 SettingsMessage::RemoveDirectory(i),
                                                             ),
                                                     )
+                                                    .push(
+                                                        text(path.to_str().unwrap().to_string())
+                                                            .font(MONO_FONT),
+                                                    )
+                                                    .push(horizontal_space())
                                                     .into()
                                                 }),
                                         )
@@ -173,16 +182,59 @@ impl Screen for Settings {
                                 ),
                         )
                         .push(
-                            button(
-                                row![]
-                                    .align_y(iced::Alignment::Center)
-                                    .spacing(10.0)
-                                    .push(icon(0xe161).size(20.0))
-                                    .push("Save"),
-                            )
-                            .padding(iced::Padding::new(5.0).left(10.0))
-                            .style(clear_button)
-                            .on_press_maybe((!self.dialog_open).then_some(SettingsMessage::Save)),
+                            row![]
+                                .align_y(iced::Alignment::Center)
+                                .push(
+                                    text("Fully watched threshold (Movies)")
+                                        .width(iced::Length::FillPortion(1)),
+                                )
+                                .push(
+                                    row![]
+                                        .align_y(iced::Alignment::Center)
+                                        .width(iced::Length::FillPortion(2))
+                                        .spacing(5.0)
+                                        .push(
+                                            text_input(
+                                                "",
+                                                &state.settings.watch_threshold_movies.to_string(),
+                                            )
+                                            .align_x(iced::Alignment::End)
+                                            .width(100)
+                                            .on_input(SettingsMessage::WatchThresholdMovies)
+                                            .style(flat_text_input),
+                                        )
+                                        .push("minute(s)")
+                                        .push(horizontal_space()),
+                                ),
+                        )
+                        .push(
+                            row![]
+                                .align_y(iced::Alignment::Center)
+                                .push(
+                                    text("Fully watched threshold (TV Episodes)")
+                                        .width(iced::Length::FillPortion(1)),
+                                )
+                                .push(
+                                    row![]
+                                        .align_y(iced::Alignment::Center)
+                                        .width(iced::Length::FillPortion(2))
+                                        .spacing(5.0)
+                                        .push(
+                                            text_input(
+                                                "",
+                                                &state
+                                                    .settings
+                                                    .watch_threshold_episodes
+                                                    .to_string(),
+                                            )
+                                            .align_x(iced::Alignment::End)
+                                            .width(100)
+                                            .on_input(SettingsMessage::WatchThresholdEpisodes)
+                                            .style(flat_text_input),
+                                        )
+                                        .push("minute(s)")
+                                        .push(horizontal_space()),
+                                ),
                         ),
                 )),
         )
@@ -197,5 +249,6 @@ pub enum SettingsMessage {
     AddDirectoryResponse(Option<PathBuf>),
     RemoveDirectory(usize),
     ApiSecretInput(String),
-    Save,
+    WatchThresholdMovies(String),
+    WatchThresholdEpisodes(String),
 }

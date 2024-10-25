@@ -84,7 +84,10 @@ impl App {
             Message::Settings(screen::SettingsMessage::Back) => {
                 let (screen, task) = screen::Home::new();
                 self.screen = AppScreen::Home(screen);
-                task.map(Message::Home)
+                iced::Task::batch([
+                    iced::Task::perform(self.state.save_settings(), |_| ()).discard(),
+                    task.map(Message::Home),
+                ])
             }
             Message::Home(message) => {
                 let AppScreen::Home(screen) = &mut self.screen else {

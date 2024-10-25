@@ -6,6 +6,9 @@ pub struct UserSettings {
     pub tmdb_secret: String,
     pub directories: Vec<PathBuf>,
     pub show_subtitles: bool,
+
+    pub watch_threshold_movies: u32,
+    pub watch_threshold_episodes: u32,
 }
 
 impl UserSettings {
@@ -14,6 +17,9 @@ impl UserSettings {
             tmdb_secret: String::new(),
             directories: vec![],
             show_subtitles: false,
+
+            watch_threshold_movies: 15,
+            watch_threshold_episodes: 2,
         }
     }
 

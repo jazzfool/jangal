@@ -192,13 +192,22 @@ impl Player {
                 iced::Task::none()
             }
             PlayerMessage::UpdateWatched => {
-                if let Some(video) = state
-                    .library
-                    .get_mut(self.id)
-                    .and_then(library::Media::video_mut)
+                if let Some((is_episode, video)) =
+                    state.library.get_mut(self.id).and_then(|media| {
+                        Some((
+                            matches!(media, library::Media::Episode(_)),
+                            media.video_mut()?,
+                        ))
+                    })
                 {
-                    // TODO: make fully-watched threshold adjustable
-                    video.watched = if self.duration - self.position < 120.0 {
+                    let watched_threshold = if is_episode {
+                        state.settings.watch_threshold_episodes
+                    } else {
+                        state.settings.watch_threshold_movies
+                    };
+                    let watched_threshold = watched_threshold as f64 * 60.0;
+
+                    video.watched = if self.duration - self.position < watched_threshold {
                         library::Watched::Yes
                     } else {
                         library::Watched::Partial {
