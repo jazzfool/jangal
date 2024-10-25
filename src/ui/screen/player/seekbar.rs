@@ -374,6 +374,10 @@ where
     ) -> Option<advanced::overlay::Element<'b, Message, Theme, Renderer>> {
         let state = tree.state.downcast_ref::<State>();
 
+        if !state.is_hovered && !state.is_dragging {
+            return None;
+        }
+
         let cursor_percent =
             (state.cursor_location - *self.range.start()) / (self.range.end() - self.range.start());
         let image_size = self
@@ -392,36 +396,34 @@ where
             position as u64 % 60
         );
 
-        (state.is_hovered || state.is_dragging).then(|| {
-            let mut overlay = vec![];
+        let mut overlay = vec![];
 
-            if let Some(image) = self.thumbnails.get(image_index).cloned() {
-                overlay.push(advanced::overlay::Element::new(Box::new(
-                    ThumbnailOverlay {
-                        position: layout.position() + translation,
-                        content_bounds: layout.bounds(),
-                        image,
-                        image_size: iced::Size::new(
-                            image_size.width as f32 / image_size.height as f32 * 100.0,
-                            100.0,
-                        ),
-                        cursor_position: state.cursor_position,
-                    },
-                )));
-            }
-
+        if let Some(image) = self.thumbnails.get(image_index).cloned() {
             overlay.push(advanced::overlay::Element::new(Box::new(
-                TimestampOverlay {
+                ThumbnailOverlay {
                     position: layout.position() + translation,
                     content_bounds: layout.bounds(),
-                    timestamp,
-                    size: iced::Size::new(80.0, 20.0),
+                    image,
+                    image_size: iced::Size::new(
+                        image_size.width as f32 / image_size.height as f32 * 100.0,
+                        100.0,
+                    ),
                     cursor_position: state.cursor_position,
                 },
             )));
+        }
 
-            advanced::overlay::Group::with_children(overlay).overlay()
-        })
+        overlay.push(advanced::overlay::Element::new(Box::new(
+            TimestampOverlay {
+                position: layout.position() + translation,
+                content_bounds: layout.bounds(),
+                timestamp,
+                size: iced::Size::new(80.0, 20.0),
+                cursor_position: state.cursor_position,
+            },
+        )));
+
+        Some(advanced::overlay::Group::with_children(overlay).overlay())
     }
 }
 
