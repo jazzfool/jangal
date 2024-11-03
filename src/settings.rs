@@ -5,10 +5,16 @@ use std::path::{Path, PathBuf};
 pub struct UserSettings {
     pub tmdb_secret: String,
     pub directories: Vec<PathBuf>,
-    pub show_subtitles: bool,
 
     pub watch_threshold_movies: u32,
     pub watch_threshold_episodes: u32,
+
+    pub show_subtitles: bool,
+    pub subtitle_opacity: f32,
+    pub subtitle_size: f32,
+
+    /// In seconds
+    pub thumbnail_interval: u32,
 }
 
 impl UserSettings {
@@ -16,10 +22,15 @@ impl UserSettings {
         UserSettings {
             tmdb_secret: String::new(),
             directories: vec![],
-            show_subtitles: false,
 
             watch_threshold_movies: 15,
             watch_threshold_episodes: 2,
+
+            show_subtitles: false,
+            subtitle_opacity: 0.9,
+            subtitle_size: 24.0,
+
+            thumbnail_interval: 300,
         }
     }
 

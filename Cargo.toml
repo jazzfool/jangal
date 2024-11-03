@@ -10,7 +10,7 @@ chrono = "0.4.38"
 directories = "5.0.1"
 env_logger = "0.11.5"
 futures = "0.3.30"
-iced = { version = "0.13.1", features = ["svg", "advanced", "tokio"] }
+iced = { version = "0.13.1", features = ["svg", "advanced", "tokio", "wgpu"] }
 iced_video_player = { git = "https://github.com/jazzfool/iced_video_player" }
 itertools = "0.13.0"
 log = "0.4.22"
@@ -25,6 +25,7 @@ sublime_fuzzy = "0.7.0"
 tmdb-api = { git = "https://github.com/jazzfool/tmdb-api" }
 url = "2.5.2"
 keepawake = "0.5"
+tokio = "1.41"
 
 [profile.release-debug]
 inherits = "release"

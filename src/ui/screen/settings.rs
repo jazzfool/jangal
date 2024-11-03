@@ -1,8 +1,8 @@
 use super::Screen;
 use crate::ui::{clear_button, flat_text_input, icon, AppState, MONO_FONT};
 use iced::widget::{
-    button, column, container, horizontal_rule, horizontal_space, row, rule, scrollable, text,
-    text_input,
+    button, column, container, horizontal_rule, horizontal_space, row, rule, scrollable, slider,
+    text, text_input,
 };
 use normpath::PathExt;
 use rfd::AsyncFileDialog;
@@ -77,6 +77,18 @@ impl Screen for Settings {
                 if let Ok(minutes) = minutes.parse() {
                     state.settings.watch_threshold_episodes = minutes;
                 }
+                iced::Task::none()
+            }
+            SettingsMessage::SubtitleOpacity(opacity) => {
+                state.settings.subtitle_opacity = opacity;
+                iced::Task::none()
+            }
+            SettingsMessage::SubtitleSize(size) => {
+                state.settings.subtitle_size = size;
+                iced::Task::none()
+            }
+            SettingsMessage::ThumbnailInterval(interval) => {
+                state.settings.thumbnail_interval = interval;
                 iced::Task::none()
             }
             _ => iced::Task::none(),
@@ -235,6 +247,80 @@ impl Screen for Settings {
                                         .push("minute(s)")
                                         .push(horizontal_space()),
                                 ),
+                        )
+                        .push(
+                            row![]
+                                .align_y(iced::Alignment::Center)
+                                .push(text("Subtitle Opacity").width(iced::Length::FillPortion(1)))
+                                .push(
+                                    row![]
+                                        .width(iced::Length::FillPortion(2))
+                                        .align_y(iced::Alignment::Center)
+                                        .spacing(5.0)
+                                        .push(
+                                            slider(
+                                                0.1..=1.0,
+                                                state.settings.subtitle_opacity,
+                                                SettingsMessage::SubtitleOpacity,
+                                            )
+                                            .width(100.0)
+                                            .step(0.1),
+                                        )
+                                        .push(text(format!(
+                                            "{}%",
+                                            (state.settings.subtitle_opacity * 100.0) as u32,
+                                        )))
+                                        .push(horizontal_space()),
+                                ),
+                        )
+                        .push(
+                            row![]
+                                .align_y(iced::Alignment::Center)
+                                .push(text("Subtitle Size").width(iced::Length::FillPortion(1)))
+                                .push(
+                                    row![]
+                                        .width(iced::Length::FillPortion(2))
+                                        .align_y(iced::Alignment::Center)
+                                        .spacing(5.0)
+                                        .push(
+                                            slider(
+                                                12.0..=48.0,
+                                                state.settings.subtitle_size,
+                                                SettingsMessage::SubtitleSize,
+                                            )
+                                            .width(100.0)
+                                            .step(1.0),
+                                        )
+                                        .push(text(state.settings.subtitle_size as u32))
+                                        .push(horizontal_space()),
+                                ),
+                        )
+                        .push(
+                            row![]
+                                .align_y(iced::Alignment::Center)
+                                .push(
+                                    text("Thumbnail Interval").width(iced::Length::FillPortion(1)),
+                                )
+                                .push(
+                                    row![]
+                                        .width(iced::Length::FillPortion(2))
+                                        .align_y(iced::Alignment::Center)
+                                        .spacing(5.0)
+                                        .push(
+                                            slider(
+                                                0..=1800,
+                                                state.settings.thumbnail_interval,
+                                                SettingsMessage::ThumbnailInterval,
+                                            )
+                                            .width(100.0)
+                                            .step(1u32),
+                                        )
+                                        .push(text(format!(
+                                            "{}s",
+                                            state.settings.thumbnail_interval
+                                        )))
+                                        .push(horizontal_space()),
+                                ),
                         ),
                 )),
         )
@@ -251,4 +337,7 @@ pub enum SettingsMessage {
     ApiSecretInput(String),
     WatchThresholdMovies(String),
     WatchThresholdEpisodes(String),
+    SubtitleOpacity(f32),
+    SubtitleSize(f32),
+    ThumbnailInterval(u32),
 }

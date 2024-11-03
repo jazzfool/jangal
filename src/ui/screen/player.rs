@@ -9,7 +9,7 @@ use iced::widget::{
     text, vertical_space,
 };
 use iced_video_player::{Position, Video, VideoPlayer};
-use std::{num::NonZeroU8, path::Path, time::Duration};
+use std::{num::NonZeroU8, path::Path, sync::Arc, time::Duration};
 
 fn keep_awake() -> keepawake::KeepAwake {
     keepawake::Builder::default()
@@ -21,22 +21,22 @@ fn keep_awake() -> keepawake::KeepAwake {
         .expect("keep awake")
 }
 
-fn load_video(path: &Path, state: &AppState) -> Video {
+fn load_video(path: &Path) -> Video {
     let mut video = Video::new(&url::Url::from_file_path(path).unwrap()).unwrap();
-    video.set_subtitles_enabled(state.settings.show_subtitles);
-    video.set_subtitle_font("Sans", 16);
+    video.set_paused(true);
     video
 }
 
 pub struct Player {
     id: library::MediaId,
-    video: Video,
+    video: Option<Video>,
     duration: f64,
     position: f64,
     dragging: bool,
     show_controls: bool,
     is_fullscreen: bool,
     thumbnails: Vec<image::Handle>,
+    subtitle: Option<String>,
     _keep_awake: Option<keepawake::KeepAwake>,
 }
 
@@ -45,43 +45,51 @@ impl Player {
         let media = state.library.get(id).unwrap();
         let media = media.video().unwrap();
 
-        let mut video = load_video(&media.path, state);
-        let duration = video.duration().as_secs_f64();
+        let media_path = media.path.clone();
+        let video_task = iced::Task::perform(
+            tokio::task::spawn_blocking(move || Arc::new(load_video(&media_path))),
+            |res| PlayerMessage::LoadVideo(res.unwrap()),
+        );
 
-        if let Some(position) = match media.watched {
-            library::Watched::Partial { seconds, .. } => {
-                Some(Position::Time(Duration::from_secs_f32(seconds)))
-            }
-            _ => None,
-        } {
-            video.seek(position, true).unwrap();
-        }
-
-        let mut headless = load_video(&media.path, state);
-        let thumbnails_fut = async move {
-            headless
-                .thumbnails(
-                    (0..32).map(|i| {
-                        Position::Time(Duration::from_secs_f64(duration * (i as f64 / 32.0)))
-                    }),
-                    NonZeroU8::new(8).unwrap(/* invariant */),
-                )
-                .expect("thumbnails")
+        let thumbnail_task = if state.settings.thumbnail_interval > 0 {
+            let media_path = media.path.clone();
+            let thumbnail_interval = state.settings.thumbnail_interval;
+            iced::Task::perform(
+                tokio::task::spawn_blocking(move || {
+                    let mut headless = load_video(&media_path);
+                    let duration = headless.duration().as_secs_f64();
+                    let num_thumbnails = duration as u32 / thumbnail_interval;
+                    headless
+                        .thumbnails(
+                            (0..num_thumbnails).map(|i| {
+                                Position::Time(Duration::from_secs_f64(
+                                    duration * (i as f64 / num_thumbnails as f64),
+                                ))
+                            }),
+                            NonZeroU8::new(8).unwrap(/* invariant */),
+                        )
+                        .expect("thumbnails")
+                }),
+                |res| PlayerMessage::Thumbnails(res.unwrap()),
+            )
+        } else {
+            iced::Task::none()
         };
 
         (
             Player {
                 id,
-                video,
-                duration,
+                video: None,
+                duration: 0.0,
                 position: 0.0,
                 dragging: false,
                 show_controls: false,
                 is_fullscreen: false,
                 thumbnails: vec![],
+                subtitle: None,
                 _keep_awake: Some(keep_awake()),
             },
-            iced::Task::perform(thumbnails_fut, PlayerMessage::Thumbnails),
+            iced::Task::batch([video_task, thumbnail_task]),
         )
     }
 
@@ -122,42 +130,95 @@ impl Player {
         state: &mut AppState,
     ) -> iced::Task<PlayerMessage> {
         match message {
-            PlayerMessage::NewFrame => {
-                if !self.dragging {
-                    self.position = self.video.position().as_secs_f64();
+            PlayerMessage::LoadVideo(video) => {
+                let mut video = Arc::try_unwrap(video).unwrap();
+
+                let media = state.library.get(self.id).unwrap();
+                let media = media.video().unwrap();
+
+                let duration = video.duration().as_secs_f64();
+
+                if let Some(position) = match media.watched {
+                    library::Watched::Partial { seconds, .. } => {
+                        Some(Position::Time(Duration::from_secs_f32(seconds)))
+                    }
+                    _ => None,
+                } {
+                    video.seek(position, true).unwrap();
                 }
+
+                video.set_paused(false);
+
+                self.video = Some(video);
+                self.duration = duration;
+
+                iced::Task::none()
+            }
+            PlayerMessage::NewFrame => {
+                let Some(video) = self.video.as_ref() else {
+                    return iced::Task::none();
+                };
+
+                if !self.dragging {
+                    self.position = video.position().as_secs_f64();
+                }
+
                 iced::Task::none()
             }
             PlayerMessage::Thumbnails(thumbnails) => {
                 self.thumbnails = thumbnails;
                 iced::Task::none()
             }
+            PlayerMessage::NewSubtitle(subtitle) => {
+                self.subtitle = subtitle;
+                iced::Task::none()
+            }
             PlayerMessage::Seek(secs) => {
+                let Some(video) = self.video.as_mut() else {
+                    return iced::Task::none();
+                };
+
                 self.dragging = true;
-                self.video.set_paused(true);
+                video.set_paused(true);
                 self.position = secs;
-                self.video
+                video
                     .seek(Duration::from_secs_f64(self.position), true)
                     .expect("seek");
                 iced::Task::none()
             }
             PlayerMessage::SeekRelease => {
+                let Some(video) = self.video.as_mut() else {
+                    return iced::Task::none();
+                };
+
                 self.dragging = false;
-                self.video.set_paused(false);
+                video.set_paused(false);
                 iced::Task::none()
             }
             PlayerMessage::Volume(volume) => {
-                self.video.set_volume(volume);
-                self.video.set_muted(false);
+                let Some(video) = self.video.as_mut() else {
+                    return iced::Task::none();
+                };
+
+                video.set_volume(volume);
+                video.set_muted(false);
                 iced::Task::none()
             }
             PlayerMessage::TogglePause => {
-                self.video.set_paused(!self.video.paused());
-                self._keep_awake = (!self.video.paused()).then(|| keep_awake());
+                let Some(video) = self.video.as_mut() else {
+                    return iced::Task::none();
+                };
+
+                video.set_paused(!video.paused());
+                self._keep_awake = (!video.paused()).then(|| keep_awake());
                 iced::Task::none()
             }
             PlayerMessage::ToggleMute => {
-                self.video.set_muted(!self.video.muted());
+                let Some(video) = self.video.as_mut() else {
+                    return iced::Task::none();
+                };
+
+                video.set_muted(!video.muted());
                 iced::Task::none()
             }
             PlayerMessage::MouseEnter => {
@@ -186,8 +247,6 @@ impl Player {
             }
             PlayerMessage::ToggleSubtitles => {
                 state.settings.show_subtitles = !state.settings.show_subtitles;
-                self.video
-                    .set_subtitles_enabled(state.settings.show_subtitles);
                 state.settings.save(&state.storage_path).unwrap();
                 iced::Task::none()
             }
@@ -247,27 +306,41 @@ impl Player {
                 }
             }
             PlayerMessage::SkipBackward => {
+                let Some(video) = self.video.as_mut() else {
+                    return iced::Task::none();
+                };
+
                 self.position = (self.position - 10.0).max(0.0);
-                self.video
+                video
                     .seek(Duration::from_secs_f64(self.position), true)
                     .unwrap();
                 iced::Task::none()
             }
             PlayerMessage::SkipForward => {
+                let Some(video) = self.video.as_mut() else {
+                    return iced::Task::none();
+                };
+
                 self.position = (self.position + 10.0).min(self.duration);
-                self.video
+                video
                     .seek(Duration::from_secs_f64(self.position), true)
                     .unwrap();
                 iced::Task::none()
             }
             PlayerMessage::VolumeUp => {
-                self.video
-                    .set_volume((self.video.volume() + 0.1).clamp(0.0, 1.0));
+                let Some(video) = self.video.as_mut() else {
+                    return iced::Task::none();
+                };
+
+                video.set_volume((video.volume() + 0.1).clamp(0.0, 1.2));
                 iced::Task::none()
             }
             PlayerMessage::VolumeDown => {
-                self.video
-                    .set_volume((self.video.volume() - 0.1).clamp(0.0, 1.0));
+                let Some(video) = self.video.as_mut() else {
+                    return iced::Task::none();
+                };
+
+                video.set_volume((video.volume() - 0.1).clamp(0.0, 1.2));
                 iced::Task::none()
             }
             _ => iced::Task::none(),
@@ -303,17 +376,49 @@ impl Player {
                 .width(iced::Length::Fill)
                 .height(iced::Length::Fill)
                 .push(
-                    center(
-                        VideoPlayer::new(&self.video)
+                    center(if let Some(video) = &self.video {
+                        VideoPlayer::new(video)
                             .on_new_frame(PlayerMessage::NewFrame)
+                            .on_subtitle_text(PlayerMessage::NewSubtitle)
                             .content_fit(iced::ContentFit::Contain)
                             .width(iced::Length::Fill)
-                            .height(iced::Length::Fill),
-                    )
+                            .height(iced::Length::Fill)
+                            .into()
+                    } else {
+                        iced::Element::from(text("Loading..."))
+                    })
                     .style(|_| container::Style {
                         background: Some(iced::Background::Color(iced::Color::BLACK)),
                         ..Default::default()
                     }),
+                )
+                .push_maybe(
+                    state
+                        .settings
+                        .show_subtitles
+                        .then_some(())
+                        .and(self.subtitle.as_ref())
+                        .map(|subtitle| {
+                            container(
+                                container(
+                                    text(subtitle.clone()).size(state.settings.subtitle_size),
+                                )
+                                .padding(iced::Padding::new(10.0).left(15.0).right(15.0))
+                                .style(|_| container::Style {
+                                    background: Some(iced::Background::Color(
+                                        iced::Color::BLACK
+                                            .scale_alpha(state.settings.subtitle_opacity),
+                                    )),
+                                    border: iced::Border::default().rounded(10.0),
+                                    ..Default::default()
+                                }),
+                            )
+                            .width(iced::Length::Fill)
+                            .height(iced::Length::Fill)
+                            .align_x(iced::Alignment::Center)
+                            .align_y(iced::Alignment::End)
+                            .padding(iced::Padding::ZERO.bottom(100.0))
+                        }),
                 )
                 .push(
                     column![]
@@ -321,13 +426,15 @@ impl Player {
                         .height(iced::Length::Fill)
                         .push(top_bar(self.show_controls, title, self.is_fullscreen))
                         .push(vertical_space().height(iced::Length::Fill))
-                        .push(bottom_bar(
-                            self.show_controls,
-                            self.position,
-                            self.thumbnails.clone(),
-                            &self.video,
-                            state,
-                        )),
+                        .push_maybe(self.video.as_ref().map(|video| {
+                            bottom_bar(
+                                self.show_controls,
+                                self.position,
+                                self.thumbnails.clone(),
+                                video,
+                                state,
+                            )
+                        })),
                 ),
         )
         .on_press(PlayerMessage::TogglePause)
@@ -337,8 +444,10 @@ impl Player {
 
 #[derive(Debug, Clone)]
 pub enum PlayerMessage {
+    LoadVideo(Arc<Video>),
     NewFrame,
     Thumbnails(Vec<image::Handle>),
+    NewSubtitle(Option<String>),
     Seek(f64),
     SeekRelease,
     Volume(f64),
@@ -459,7 +568,7 @@ fn bottom_bar<'a>(
                         true,
                     ))
                     .push(
-                        slider(0.0..=1.0, video.volume(), PlayerMessage::Volume)
+                        slider(0.0..=1.2, video.volume(), PlayerMessage::Volume)
                             .step(0.05)
                             .width(100.0),
                     ),

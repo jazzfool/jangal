@@ -386,7 +386,7 @@ where
             .map(|img| renderer.measure_image(img))
             .unwrap_or_default();
         let image_index = (cursor_percent * self.thumbnails.len() as Value) as usize;
-        let image_index = image_index.min(self.thumbnails.len() - 1);
+        let image_index = image_index.min(self.thumbnails.len().max(1) - 1);
 
         let position = (cursor_percent * self.duration.as_secs_f64()) as u64;
         let timestamp = format!(
