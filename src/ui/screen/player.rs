@@ -2,11 +2,12 @@ mod seekbar;
 
 use crate::{
     library,
-    ui::{icon, AppState},
+    ui::{clear_button, clear_scrollable, icon, menu_button, AppState},
 };
+use gstreamer::prelude::ObjectExt;
 use iced::widget::{
-    button, center, column, container, horizontal_space, image, mouse_area, row, slider, stack,
-    text, vertical_space,
+    button, center, column, container, horizontal_space, image, mouse_area, row, scrollable,
+    slider, stack, text, vertical_space,
 };
 use iced_video_player::{Position, Video, VideoPlayer};
 use std::{num::NonZeroU8, path::Path, sync::Arc, time::Duration};
@@ -27,6 +28,13 @@ fn load_video(path: &Path) -> Video {
     video
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SubtitleOption {
+    None,
+    Stream(usize),
+    // Uri(uri::Uri),
+}
+
 pub struct Player {
     id: library::MediaId,
     video: Option<Video>,
@@ -35,8 +43,11 @@ pub struct Player {
     dragging: bool,
     show_controls: bool,
     is_fullscreen: bool,
+    subtitle_streams: Vec<String>,
     thumbnails: Vec<image::Handle>,
     subtitle: Option<String>,
+    selected_subtitle: SubtitleOption,
+    subtitle_menu_open: bool,
     _keep_awake: Option<keepawake::KeepAwake>,
 }
 
@@ -47,8 +58,46 @@ impl Player {
 
         let media_path = media.path.clone();
         let video_task = iced::Task::perform(
-            tokio::task::spawn_blocking(move || Arc::new(load_video(&media_path))),
-            |res| PlayerMessage::LoadVideo(res.unwrap()),
+            tokio::task::spawn_blocking(move || {
+                let video = load_video(&media_path);
+
+                let pipeline = video.pipeline();
+                let num_subtitles = pipeline.property::<i32>("n-text");
+                let subtitle_streams = (0..num_subtitles)
+                    .map(|i| {
+                        let tags = pipeline
+                            .emit_by_name::<Option<gstreamer::TagList>>("get-text-tags", &[&i]);
+
+                        let name = tags.map(|tags| {
+                            (
+                                tags.get::<gstreamer::tags::LanguageCode>().and_then(|tag| {
+                                    locale_codes::language::lookup(tag.get())
+                                        .map(|lang| lang.reference_name.clone())
+                                }),
+                                tags.get::<gstreamer::tags::Title>()
+                                    .map(|tag| tag.get().to_owned()),
+                            )
+                        });
+                        match name {
+                            Some((Some(language), Some(title))) => {
+                                format!("{} | {}", language, title)
+                            }
+                            Some((Some(language), None)) => format!("{}", language),
+                            Some((None, Some(title))) => format!("Stream {} | {}", i, title),
+                            _ => format!("Stream {}", i),
+                        }
+                    })
+                    .collect();
+
+                (Arc::new(video), subtitle_streams)
+            }),
+            |res| {
+                let res = res.unwrap();
+                PlayerMessage::LoadVideo {
+                    video: res.0,
+                    subtitle_streams: res.1,
+                }
+            },
         );
 
         let thumbnail_task = if state.settings.thumbnail_interval > 0 {
@@ -85,8 +134,11 @@ impl Player {
                 dragging: false,
                 show_controls: false,
                 is_fullscreen: false,
+                subtitle_streams: vec![],
                 thumbnails: vec![],
                 subtitle: None,
+                selected_subtitle: SubtitleOption::None,
+                subtitle_menu_open: false,
                 _keep_awake: Some(keep_awake()),
             },
             iced::Task::batch([video_task, thumbnail_task]),
@@ -130,7 +182,10 @@ impl Player {
         state: &mut AppState,
     ) -> iced::Task<PlayerMessage> {
         match message {
-            PlayerMessage::LoadVideo(video) => {
+            PlayerMessage::LoadVideo {
+                video,
+                subtitle_streams,
+            } => {
                 let mut video = Arc::try_unwrap(video).unwrap();
 
                 let media = state.library.get(self.id).unwrap();
@@ -151,6 +206,7 @@ impl Player {
 
                 self.video = Some(video);
                 self.duration = duration;
+                self.subtitle_streams = subtitle_streams;
 
                 iced::Task::none()
             }
@@ -332,7 +388,7 @@ impl Player {
                     return iced::Task::none();
                 };
 
-                video.set_volume((video.volume() + 0.1).clamp(0.0, 1.2));
+                video.set_volume((video.volume() + 0.1).clamp(0.0, 1.0));
                 iced::Task::none()
             }
             PlayerMessage::VolumeDown => {
@@ -340,7 +396,19 @@ impl Player {
                     return iced::Task::none();
                 };
 
-                video.set_volume((video.volume() - 0.1).clamp(0.0, 1.2));
+                video.set_volume((video.volume() - 0.1).clamp(0.0, 1.0));
+                iced::Task::none()
+            }
+            PlayerMessage::ToggleSubtitleMenuOpen(open) => {
+                self.subtitle_menu_open = open;
+                iced::Task::none()
+            }
+            PlayerMessage::SelectSubtitleStream(stream) => {
+                self.selected_subtitle = SubtitleOption::Stream(stream);
+                let Some(video) = self.video.as_mut() else {
+                    return iced::Task::none();
+                };
+                video.pipeline().set_property("current-text", stream as i32);
                 iced::Task::none()
             }
             _ => iced::Task::none(),
@@ -424,12 +492,18 @@ impl Player {
                     column![]
                         .width(iced::Length::Fill)
                         .height(iced::Length::Fill)
-                        .push(top_bar(self.show_controls, title, self.is_fullscreen))
+                        .push(top_bar(
+                            self.show_controls || self.subtitle_menu_open,
+                            title,
+                            self.is_fullscreen,
+                        ))
                         .push(vertical_space().height(iced::Length::Fill))
                         .push_maybe(self.video.as_ref().map(|video| {
                             bottom_bar(
-                                self.show_controls,
+                                self.show_controls || self.subtitle_menu_open,
                                 self.position,
+                                self.subtitle_streams.clone(),
+                                self.selected_subtitle,
                                 self.thumbnails.clone(),
                                 video,
                                 state,
@@ -444,7 +518,10 @@ impl Player {
 
 #[derive(Debug, Clone)]
 pub enum PlayerMessage {
-    LoadVideo(Arc<Video>),
+    LoadVideo {
+        video: Arc<Video>,
+        subtitle_streams: Vec<String>,
+    },
     NewFrame,
     Thumbnails(Vec<image::Handle>),
     NewSubtitle(Option<String>),
@@ -466,6 +543,8 @@ pub enum PlayerMessage {
     SkipForward,
     VolumeUp,
     VolumeDown,
+    ToggleSubtitleMenuOpen(bool),
+    SelectSubtitleStream(usize),
 }
 
 fn top_bar<'a>(show: bool, title: String, is_fullscreen: bool) -> iced::Element<'a, PlayerMessage> {
@@ -507,6 +586,8 @@ fn top_bar<'a>(show: bool, title: String, is_fullscreen: bool) -> iced::Element<
 fn bottom_bar<'a>(
     show: bool,
     position: f64,
+    subtitle_streams: Vec<String>,
+    selected_subtitle: SubtitleOption,
     thumbnails: Vec<image::Handle>,
     video: &Video,
     state: &AppState,
@@ -552,7 +633,12 @@ fn bottom_bar<'a>(
             .into()
     }
 
-    fn media_controls<'a>(video: &Video, state: &AppState) -> iced::Element<'a, PlayerMessage> {
+    fn media_controls<'a>(
+        video: &Video,
+        state: &AppState,
+        subtitle_streams: Vec<String>,
+        selected_subtitle: SubtitleOption,
+    ) -> iced::Element<'a, PlayerMessage> {
         row![]
             .spacing(10.0)
             .align_y(iced::Alignment::Center)
@@ -568,7 +654,7 @@ fn bottom_bar<'a>(
                         true,
                     ))
                     .push(
-                        slider(0.0..=1.2, video.volume(), PlayerMessage::Volume)
+                        slider(0.0..=1.0, video.volume(), PlayerMessage::Volume)
                             .step(0.05)
                             .width(100.0),
                     ),
@@ -610,7 +696,88 @@ fn bottom_bar<'a>(
                         }),
                         PlayerMessage::ToggleSubtitles,
                         true,
-                    )),
+                    ))
+                    .push(
+                        menu_button(
+                            container(
+                                icon(0xe5c7)
+                                    .size(30.0)
+                                    .color(iced::Color::from_rgb8(220, 220, 220)),
+                            )
+                            .center(iced::Length::Fill),
+                            move || {
+                                let subtitle_streams = subtitle_streams.clone();
+                                container(
+                                    scrollable(column![].extend(
+                                        subtitle_streams.into_iter().enumerate().map(
+                                            |(i, name)| {
+                                                button(
+                                                    row![]
+                                                        .spacing(5.0)
+                                                        .push(icon(0xe5ca).size(16.0).color(
+                                                            iced::Color::from_rgba8(
+                                                                220,
+                                                                220,
+                                                                220,
+                                                                if selected_subtitle
+                                                                    == SubtitleOption::Stream(i)
+                                                                {
+                                                                    1.0
+                                                                } else {
+                                                                    0.0
+                                                                },
+                                                            ),
+                                                        ))
+                                                        .push(text(name)),
+                                                )
+                                                .on_press(PlayerMessage::SelectSubtitleStream(i))
+                                                .width(iced::Length::Fill)
+                                                .height(30.0)
+                                                .padding(iced::Padding::new(5.0).left(10.0))
+                                                .style(clear_button)
+                                                .into()
+                                            },
+                                        ),
+                                    ))
+                                    .style(clear_scrollable),
+                                )
+                                .width(iced::Length::Fixed(300.0))
+                                .height(iced::Length::Fixed(400.0))
+                                .padding(5.0)
+                                .style(|theme: &iced::Theme| container::Style {
+                                    background: Some(iced::Background::Color(
+                                        theme.extended_palette().background.strong.text,
+                                    )),
+                                    border: iced::Border {
+                                        color: theme.extended_palette().background.weak.color,
+                                        width: 1.0,
+                                        radius: iced::border::radius(10.0),
+                                    },
+                                    shadow: iced::Shadow {
+                                        color: iced::Color::BLACK.scale_alpha(1.2),
+                                        offset: iced::Vector::new(0.0, 3.0),
+                                        blur_radius: 20.0,
+                                    },
+                                    ..Default::default()
+                                })
+                                .into()
+                            },
+                        )
+                        .on_toggle(PlayerMessage::ToggleSubtitleMenuOpen)
+                        .style(|_, status| button::Style {
+                            background: match status {
+                                button::Status::Hovered => Some(iced::Background::Color(
+                                    iced::Color::from_rgba8(255, 255, 255, 0.01),
+                                )),
+                                _ => None,
+                            },
+                            border: iced::Border::default().rounded(5.0),
+                            ..Default::default()
+                        })
+                        .padding(0.0)
+                        .width(40.0)
+                        .height(40.0),
+                    ),
             )
             .into()
     }
@@ -620,7 +787,12 @@ fn bottom_bar<'a>(
             column![]
                 .spacing(15.0)
                 .push(seek_controls(position, thumbnails, video))
-                .push(media_controls(video, state)),
+                .push(media_controls(
+                    video,
+                    state,
+                    subtitle_streams,
+                    selected_subtitle,
+                )),
         )
         .padding(iced::Padding::new(20.0))
         .style(|_| container::Style {

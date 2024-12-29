@@ -1,10 +1,9 @@
+use crate::ui::MONO_FONT;
 use iced::{
     advanced::{self, image, layout, text, widget::tree},
     event, keyboard, mouse, touch,
 };
 use std::{marker::PhantomData, ops::RangeInclusive, time::Duration};
-
-use crate::ui::MONO_FONT;
 
 type Value = f64;
 

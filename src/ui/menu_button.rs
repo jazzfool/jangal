@@ -25,6 +25,7 @@ where
 {
     content: iced::Element<'a, Message, Theme, Renderer>,
     menu_content: Box<dyn Fn() -> iced::Element<'a, Message, Theme, Renderer>>,
+    on_toggle: Option<Box<dyn Fn(bool) -> Message + 'a>>,
     width: iced::Length,
     height: iced::Length,
     padding: iced::Padding,
@@ -46,11 +47,17 @@ where
         MenuButton {
             content,
             menu_content: Box::new(menu_content),
+            on_toggle: None,
             width: size.width.fluid(),
             height: size.height.fluid(),
             padding: iced::Padding::new(5.0).left(10.0).right(10.0),
             class: Theme::default(),
         }
+    }
+
+    pub fn on_toggle(mut self, on_toggle: impl Fn(bool) -> Message + 'a) -> Self {
+        self.on_toggle = Some(Box::new(on_toggle));
+        self
     }
 
     pub fn width(mut self, width: impl Into<iced::Length>) -> Self {
@@ -218,9 +225,15 @@ where
             iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left)) => {
                 if state.is_open {
                     state.is_open = false;
+                    if let Some(on_toggle) = &self.on_toggle {
+                        shell.publish(on_toggle(false));
+                    }
                     event::Status::Captured
                 } else if cursor.is_over(bounds) {
                     state.is_open = true;
+                    if let Some(on_toggle) = &self.on_toggle {
+                        shell.publish(on_toggle(true));
+                    }
                     event::Status::Captured
                 } else {
                     event::Status::Ignored
