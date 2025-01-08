@@ -4,13 +4,19 @@ use crate::{
     library,
     ui::{clear_button, clear_scrollable, icon, menu_button, AppState},
 };
-use gstreamer::prelude::ObjectExt;
+use gstreamer::prelude::{ElementExt, ObjectExt};
 use iced::widget::{
     button, center, column, container, horizontal_space, image, mouse_area, row, scrollable,
     slider, stack, text, vertical_space,
 };
 use iced_video_player::{Position, Video, VideoPlayer};
-use std::{num::NonZeroU8, path::Path, sync::Arc, time::Duration};
+use rfd::AsyncFileDialog;
+use std::{
+    num::NonZeroU8,
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::Duration,
+};
 
 fn keep_awake() -> keepawake::KeepAwake {
     keepawake::Builder::default()
@@ -28,11 +34,11 @@ fn load_video(path: &Path) -> Video {
     video
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum SubtitleOption {
     None,
     Stream(usize),
-    // Uri(uri::Uri),
+    File(PathBuf),
 }
 
 pub struct Player {
@@ -48,6 +54,7 @@ pub struct Player {
     subtitle: Option<String>,
     selected_subtitle: SubtitleOption,
     subtitle_menu_open: bool,
+    dialog_open: bool,
     _keep_awake: Option<keepawake::KeepAwake>,
 }
 
@@ -139,6 +146,7 @@ impl Player {
                 subtitle: None,
                 selected_subtitle: SubtitleOption::None,
                 subtitle_menu_open: false,
+                dialog_open: false,
                 _keep_awake: Some(keep_awake()),
             },
             iced::Task::batch([video_task, thumbnail_task]),
@@ -205,6 +213,7 @@ impl Player {
                 video.set_paused(false);
 
                 self.video = Some(video);
+
                 self.duration = duration;
                 self.subtitle_streams = subtitle_streams;
 
@@ -404,11 +413,63 @@ impl Player {
                 iced::Task::none()
             }
             PlayerMessage::SelectSubtitleStream(stream) => {
-                self.selected_subtitle = SubtitleOption::Stream(stream);
                 let Some(video) = self.video.as_mut() else {
                     return iced::Task::none();
                 };
+                let paused = video.paused();
+                let position = video.position();
+                video.pipeline().set_state(gstreamer::State::Ready).unwrap();
+                video
+                    .pipeline()
+                    .set_property("suburi", Option::<&str>::None);
                 video.pipeline().set_property("current-text", stream as i32);
+                video.set_paused(paused);
+                let _ = video.pipeline().state(None);
+                video.seek(position, true).unwrap();
+
+                self.subtitle = None;
+                self.selected_subtitle = SubtitleOption::Stream(stream);
+
+                iced::Task::none()
+            }
+            PlayerMessage::OpenSubtitleFilePicker => {
+                if self.dialog_open {
+                    return iced::Task::none();
+                }
+                self.dialog_open = true;
+
+                iced::Task::perform(
+                    async move {
+                        AsyncFileDialog::new()
+                            .add_filter("Subtitle files", &["srt"])
+                            .pick_file()
+                            .await
+                            .map(|handle| handle.path().to_path_buf())
+                    },
+                    PlayerMessage::PickSubtitleFile,
+                )
+            }
+            PlayerMessage::PickSubtitleFile(file) => {
+                self.dialog_open = false;
+
+                let Some(file) = file else {
+                    return iced::Task::none();
+                };
+
+                let Some(video) = self.video.as_mut() else {
+                    return iced::Task::none();
+                };
+
+                let position = video.position();
+                video
+                    .set_subtitle_url(&url::Url::from_file_path(&file).unwrap())
+                    .expect("failed to set subtitle file");
+                let _ = video.pipeline().state(None);
+                video.seek(position, true).unwrap();
+
+                self.subtitle = None;
+                self.selected_subtitle = SubtitleOption::File(file);
+
                 iced::Task::none()
             }
             _ => iced::Task::none(),
@@ -493,17 +554,17 @@ impl Player {
                         .width(iced::Length::Fill)
                         .height(iced::Length::Fill)
                         .push(top_bar(
-                            self.show_controls || self.subtitle_menu_open,
+                            self.show_controls || self.subtitle_menu_open || self.dialog_open,
                             title,
                             self.is_fullscreen,
                         ))
                         .push(vertical_space().height(iced::Length::Fill))
                         .push_maybe(self.video.as_ref().map(|video| {
                             bottom_bar(
-                                self.show_controls || self.subtitle_menu_open,
+                                self.show_controls || self.subtitle_menu_open || self.dialog_open,
                                 self.position,
                                 self.subtitle_streams.clone(),
-                                self.selected_subtitle,
+                                self.selected_subtitle.clone(),
                                 self.thumbnails.clone(),
                                 video,
                                 state,
@@ -545,6 +606,8 @@ pub enum PlayerMessage {
     VolumeDown,
     ToggleSubtitleMenuOpen(bool),
     SelectSubtitleStream(usize),
+    OpenSubtitleFilePicker,
+    PickSubtitleFile(Option<PathBuf>),
 }
 
 fn top_bar<'a>(show: bool, title: String, is_fullscreen: bool) -> iced::Element<'a, PlayerMessage> {
@@ -639,6 +702,13 @@ fn bottom_bar<'a>(
         subtitle_streams: Vec<String>,
         selected_subtitle: SubtitleOption,
     ) -> iced::Element<'a, PlayerMessage> {
+        let subtitle_file = if let SubtitleOption::File(path) = &selected_subtitle {
+            path.file_name()
+                .map(|filename| filename.to_string_lossy().to_string())
+        } else {
+            None
+        };
+
         row![]
             .spacing(10.0)
             .align_y(iced::Alignment::Center)
@@ -707,42 +777,89 @@ fn bottom_bar<'a>(
                             .center(iced::Length::Fill),
                             move || {
                                 let subtitle_streams = subtitle_streams.clone();
+                                let subtitle_file = subtitle_file.clone();
                                 container(
-                                    scrollable(column![].extend(
-                                        subtitle_streams.into_iter().enumerate().map(
-                                            |(i, name)| {
+                                    scrollable(
+                                        column![]
+                                            .push(
                                                 button(
                                                     row![]
                                                         .spacing(5.0)
-                                                        .push(icon(0xe5ca).size(16.0).color(
-                                                            iced::Color::from_rgba8(
-                                                                220,
-                                                                220,
-                                                                220,
-                                                                if selected_subtitle
-                                                                    == SubtitleOption::Stream(i)
-                                                                {
-                                                                    1.0
-                                                                } else {
-                                                                    0.0
-                                                                },
-                                                            ),
+                                                        .push(icon(0xeaf3).size(16.0).color(
+                                                            iced::Color::from_rgb8(220, 220, 220),
                                                         ))
-                                                        .push(text(name)),
+                                                        .push(text("Load subtitles from file")),
                                                 )
-                                                .on_press(PlayerMessage::SelectSubtitleStream(i))
+                                                .on_press(PlayerMessage::OpenSubtitleFilePicker)
                                                 .width(iced::Length::Fill)
                                                 .height(30.0)
                                                 .padding(iced::Padding::new(5.0).left(10.0))
-                                                .style(clear_button)
-                                                .into()
-                                            },
-                                        ),
-                                    ))
+                                                .style(clear_button),
+                                            )
+                                            .push(
+                                                subtitle_file
+                                                    .map(|subtitle_file| {
+                                                        iced::Element::from(
+                                                            row![]
+                                                                .spacing(5.0)
+                                                                .width(iced::Length::Fill)
+                                                                .height(30.0)
+                                                                .padding(
+                                                                    iced::Padding::new(5.0)
+                                                                        .left(10.0),
+                                                                )
+                                                                .push(
+                                                                    icon(0xe5ca).size(16.0).color(
+                                                                        iced::Color::from_rgb8(
+                                                                            220, 220, 220,
+                                                                        ),
+                                                                    ),
+                                                                )
+                                                                .push(text(subtitle_file).color(
+                                                                    iced::Color::from_rgba8(
+                                                                        220, 220, 220, 0.5,
+                                                                    ),
+                                                                )),
+                                                        )
+                                                    })
+                                                    .unwrap_or_else(|| row![].into()),
+                                            )
+                                            .extend(subtitle_streams.into_iter().enumerate().map(
+                                                |(i, name)| {
+                                                    button(
+                                                        row![]
+                                                            .spacing(5.0)
+                                                            .push(icon(0xe5ca).size(16.0).color(
+                                                                iced::Color::from_rgba8(
+                                                                    220,
+                                                                    220,
+                                                                    220,
+                                                                    if selected_subtitle
+                                                                        == SubtitleOption::Stream(i)
+                                                                    {
+                                                                        1.0
+                                                                    } else {
+                                                                        0.0
+                                                                    },
+                                                                ),
+                                                            ))
+                                                            .push(text(name)),
+                                                    )
+                                                    .on_press(PlayerMessage::SelectSubtitleStream(
+                                                        i,
+                                                    ))
+                                                    .width(iced::Length::Fill)
+                                                    .height(30.0)
+                                                    .padding(iced::Padding::new(5.0).left(10.0))
+                                                    .style(clear_button)
+                                                    .into()
+                                                },
+                                            )),
+                                    )
                                     .style(clear_scrollable),
                                 )
-                                .width(iced::Length::Fixed(300.0))
-                                .height(iced::Length::Fixed(400.0))
+                                .max_width(300.0)
+                                .max_height(400.0)
                                 .padding(5.0)
                                 .style(|theme: &iced::Theme| container::Style {
                                     background: Some(iced::Background::Color(
