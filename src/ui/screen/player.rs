@@ -893,7 +893,8 @@ fn bottom_bar<'a>(
                         })
                         .padding(0.0)
                         .width(40.0)
-                        .height(40.0),
+                        .height(40.0)
+                        .location(menu_button::Location::TopLeft),
                     ),
             )
             .into()

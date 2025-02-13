@@ -7,6 +7,15 @@ use iced::{
     widget::button,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Location {
+    Auto,
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+}
+
 pub fn menu_button<'a, Message, Theme, Renderer>(
     content: impl Into<iced::Element<'a, Message, Theme, Renderer>>,
     menu_content: impl Fn() -> iced::Element<'a, Message, Theme, Renderer> + 'static,
@@ -28,6 +37,7 @@ where
     on_toggle: Option<Box<dyn Fn(bool) -> Message + 'a>>,
     width: iced::Length,
     height: iced::Length,
+    location: Location,
     padding: iced::Padding,
     class: Theme::Class<'a>,
 }
@@ -50,6 +60,7 @@ where
             on_toggle: None,
             width: size.width.fluid(),
             height: size.height.fluid(),
+            location: Location::Auto,
             padding: iced::Padding::new(5.0).left(10.0).right(10.0),
             class: Theme::default(),
         }
@@ -67,6 +78,11 @@ where
 
     pub fn height(mut self, height: impl Into<iced::Length>) -> Self {
         self.height = height.into();
+        self
+    }
+
+    pub fn location(mut self, location: Location) -> Self {
+        self.location = location;
         self
     }
 
@@ -274,6 +290,7 @@ where
                 (self.menu_content)(),
                 layout.position() + translation,
                 layout.bounds().size(),
+                self.location,
             )))
         })
     }
@@ -296,6 +313,7 @@ struct MenuButtonOverlay<'a, Message, Theme, Renderer> {
     content: iced::Element<'a, Message, Theme, Renderer>,
     position: iced::Point,
     content_size: iced::Size,
+    location: Location,
 }
 
 impl<'a, Message, Theme, Renderer> MenuButtonOverlay<'a, Message, Theme, Renderer> {
@@ -304,12 +322,14 @@ impl<'a, Message, Theme, Renderer> MenuButtonOverlay<'a, Message, Theme, Rendere
         content: iced::Element<'a, Message, Theme, Renderer>,
         position: iced::Point,
         content_size: iced::Size,
+        location: Location,
     ) -> Self {
         MenuButtonOverlay {
             tree,
             content,
             position,
             content_size,
+            location,
         }
     }
 }
@@ -332,18 +352,23 @@ where
             width,
             height,
         } = layout.bounds();
-        layout.translate_mut(iced::Vector::new(
-            if x + width > bounds.width {
+
+        let x_offset = match (self.location, x + width > bounds.width) {
+            (Location::Auto, true) | (Location::TopLeft, _) | (Location::BottomLeft, _) => {
                 -width + self.content_size.width
-            } else {
-                0.0
-            },
-            if y + height > bounds.height {
+            }
+            (Location::Auto, false) | (Location::TopRight, _) | (Location::BottomRight, _) => 0.0,
+        };
+        let y_offset = match (self.location, y + height > bounds.height) {
+            (Location::Auto, true) | (Location::TopLeft, _) | (Location::TopRight, _) => {
                 -height - 5.0
-            } else {
+            }
+            (Location::Auto, false) | (Location::BottomLeft, _) | (Location::BottomRight, _) => {
                 self.content_size.height + 5.0
-            },
-        ));
+            }
+        };
+
+        layout.translate_mut(iced::Vector::new(x_offset, y_offset));
         layout
     }
 
