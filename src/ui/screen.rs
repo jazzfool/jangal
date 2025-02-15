@@ -13,5 +13,7 @@ pub trait Screen {
 
     fn update(&mut self, message: Self::Message, state: &mut AppState)
         -> iced::Task<Self::Message>;
-    fn view(&self, state: &AppState) -> iced::Element<Self::Message>;
+    fn view<'a, 'b>(&'a self, state: &'a AppState) -> iced::Element<'b, Self::Message>
+    where
+        'a: 'b;
 }

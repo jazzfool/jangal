@@ -72,22 +72,24 @@ pub const SANS_FONT: iced::Font = iced::Font {
 };
 
 pub const HEADER_FONT: iced::Font = iced::Font {
-    family: iced::font::Family::Name("Lexend"),
-    weight: iced::font::Weight::Normal,
+    family: iced::font::Family::Name("Funnel Display"),
+    weight: iced::font::Weight::Medium,
     stretch: iced::font::Stretch::Normal,
     style: iced::font::Style::Normal,
 };
 
-pub const MONO_FONT: iced::Font = iced::Font {
-    family: iced::font::Family::Name("IBM Plex Mono"),
-    weight: iced::font::Weight::Normal,
-    stretch: iced::font::Stretch::Normal,
-    style: iced::font::Style::Normal,
-};
+pub const MONO_FONT: iced::Font = iced::Font::MONOSPACE;
 
 pub const ICON_FONT: iced::Font = iced::Font {
     family: iced::font::Family::Name("Material Symbols Sharp Filled"),
     weight: iced::font::Weight::Normal,
+    stretch: iced::font::Stretch::Normal,
+    style: iced::font::Style::Normal,
+};
+
+pub const SUBTITLE_FONT: iced::Font = iced::Font {
+    family: iced::font::Family::Name("Nimbus Sans"),
+    weight: iced::font::Weight::Bold,
     stretch: iced::font::Stretch::Normal,
     style: iced::font::Style::Normal,
 };

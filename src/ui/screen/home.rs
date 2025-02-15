@@ -96,7 +96,10 @@ impl Screen for Home {
         }
     }
 
-    fn view(&self, state: &AppState) -> iced::Element<HomeMessage> {
+    fn view<'a, 'b>(&'a self, state: &'a AppState) -> iced::Element<'b, HomeMessage>
+    where
+        'a: 'b,
+    {
         let search = (!self.search.trim().is_empty()).then_some(self.search.as_str());
         let tab = state.tab_stack.back().copied().unwrap();
 

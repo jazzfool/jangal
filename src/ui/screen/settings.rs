@@ -1,5 +1,7 @@
 use super::Screen;
-use crate::ui::{clear_button, flat_text_input, icon, AppState, MONO_FONT};
+use crate::ui::{
+    clear_button, flat_text_input, icon, AppState, HEADER_FONT, MONO_FONT, SUBTITLE_FONT,
+};
 use iced::widget::{
     button, column, container, horizontal_rule, horizontal_space, row, rule, scrollable, slider,
     text, text_input,
@@ -95,7 +97,10 @@ impl Screen for Settings {
         }
     }
 
-    fn view(&self, state: &AppState) -> iced::Element<SettingsMessage> {
+    fn view<'a, 'b>(&'a self, state: &'a AppState) -> iced::Element<'b, SettingsMessage>
+    where
+        'a: 'b,
+    {
         container(
             column![]
                 .push(
@@ -113,6 +118,7 @@ impl Screen for Settings {
                             )
                             .push(
                                 text("Settings")
+                                    .font(HEADER_FONT)
                                     .size(26.0)
                                     .color(iced::Color::from_rgba8(210, 210, 210, 1.0)),
                             ),
@@ -139,6 +145,7 @@ impl Screen for Settings {
                                     text_input("API Secret", &state.settings.tmdb_secret)
                                         .on_input(SettingsMessage::ApiSecretInput)
                                         .style(flat_text_input)
+                                        .font(MONO_FONT)
                                         .width(iced::Length::FillPortion(2)),
                                 ),
                         )
@@ -264,7 +271,7 @@ impl Screen for Settings {
                                                 SettingsMessage::SubtitleOpacity,
                                             )
                                             .width(100.0)
-                                            .step(0.1),
+                                            .step(0.05),
                                         )
                                         .push(text(format!(
                                             "{}%",
@@ -294,6 +301,32 @@ impl Screen for Settings {
                                         .push(text(state.settings.subtitle_size as u32))
                                         .push(horizontal_space()),
                                 ),
+                        )
+                        .push(
+                            container(
+                                container(
+                                    text("This is how subtitle text will appear")
+                                        .font(SUBTITLE_FONT)
+                                        .size(state.settings.subtitle_size)
+                                        .color(iced::Color::from_rgb8(231, 211, 73)),
+                                )
+                                .padding(iced::Padding::new(5.0).left(10.0).right(10.0))
+                                .style(|_| container::Style {
+                                    background: Some(iced::Background::Color(
+                                        iced::Color::BLACK
+                                            .scale_alpha(state.settings.subtitle_opacity),
+                                    )),
+                                    ..Default::default()
+                                }),
+                            )
+                            .padding(iced::Padding::new(15.0).left(20.0).right(20.0))
+                            .style(|_| container::Style {
+                                background: Some(iced::Background::Color(iced::Color::from_rgb(
+                                    0.5, 0.5, 0.5,
+                                ))),
+                                border: iced::Border::default().rounded(5.0),
+                                ..Default::default()
+                            }),
                         )
                         .push(
                             row![]

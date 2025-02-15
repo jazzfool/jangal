@@ -2,7 +2,7 @@ mod seekbar;
 
 use crate::{
     library,
-    ui::{clear_button, clear_scrollable, icon, menu_button, AppState},
+    ui::{clear_button, clear_scrollable, icon, menu_button, AppState, SUBTITLE_FONT},
 };
 use gstreamer::prelude::{ElementExt, ObjectExt};
 use iced::widget::{
@@ -476,7 +476,10 @@ impl Player {
         }
     }
 
-    pub fn view<'a>(&'a self, state: &'a AppState) -> iced::Element<PlayerMessage> {
+    pub fn view<'a, 'b>(&'a self, state: &'a AppState) -> iced::Element<'b, PlayerMessage>
+    where
+        'a: 'b,
+    {
         let title = match state.library.get(self.id) {
             Some(library::Media::Episode(episode)) => {
                 let series = state
@@ -530,15 +533,17 @@ impl Player {
                         .map(|subtitle| {
                             container(
                                 container(
-                                    text(subtitle.clone()).size(state.settings.subtitle_size),
+                                    text(subtitle.clone())
+                                        .font(SUBTITLE_FONT)
+                                        .size(state.settings.subtitle_size)
+                                        .color(iced::Color::from_rgb8(231, 211, 73)),
                                 )
-                                .padding(iced::Padding::new(10.0).left(15.0).right(15.0))
+                                .padding(iced::Padding::new(5.0).left(10.0).right(10.0))
                                 .style(|_| container::Style {
                                     background: Some(iced::Background::Color(
                                         iced::Color::BLACK
                                             .scale_alpha(state.settings.subtitle_opacity),
                                     )),
-                                    border: iced::Border::default().rounded(10.0),
                                     ..Default::default()
                                 }),
                             )
