@@ -108,7 +108,7 @@ pub fn top_bar<'a>(
                         row![]
                             .spacing(5.0)
                             .push(icon(0xf723).color(iced::Color::from_rgb8(95, 143, 245)))
-                            .push("Partally watched"),
+                            .push("Partially watched"),
                         filter.partially_watched,
                         HomeMessage::ToggleFilterPartiallyWatched,
                     ))
