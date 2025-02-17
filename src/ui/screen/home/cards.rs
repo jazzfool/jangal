@@ -2,14 +2,6 @@ use super::{media_menu, poster_image, search_maybe, watched_icon, HomeMessage, T
 use crate::{library, ui::icon};
 use iced::widget::{column, container, horizontal_space, hover, mouse_area, row, stack, text};
 
-pub fn sort_alphanumeric(
-    a: &(&library::MediaId, &library::Media),
-    b: &(&library::MediaId, &library::Media),
-    library: &library::Library,
-) -> std::cmp::Ordering {
-    library::full_title(*a.0, library).cmp(&library::full_title(*b.0, library))
-}
-
 pub fn card_grid<'a, 'b>(
     search: Option<&str>,
     media: impl Iterator<Item = (&'b library::MediaId, &'b library::Media)>,

@@ -40,7 +40,7 @@ fn main() -> iced::Result {
                 include_bytes!("ui/resources/WorkSans-Bold.ttf").into(),
                 include_bytes!("ui/resources/WorkSans-Italic.ttf").into(),
                 include_bytes!("ui/resources/WorkSans-BoldItalic.ttf").into(),
-                include_bytes!("ui/resources/FunnelDisplay-Medium.ttf").into(),
+                include_bytes!("ui/resources/MonaSans-SemiBold.ttf").into(),
                 include_bytes!("ui/resources/MaterialSymbolsSharp_Filled-Regular.ttf").into(),
                 include_bytes!("ui/resources/NimbusSans-Bold.ttf").into(),
                 include_bytes!("ui/resources/NimbusSans-BoldItalic.ttf").into(),

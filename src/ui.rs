@@ -5,7 +5,10 @@ pub mod screen;
 pub use menu_button::menu_button;
 
 use crate::{library, settings::UserSettings};
-use iced::widget::{button, container, scrollable, text, text_input};
+use iced::{
+    overlay::menu,
+    widget::{button, checkbox, container, pick_list, row, scrollable, text, text_input},
+};
 use std::{
     collections::VecDeque,
     future::Future,
@@ -72,8 +75,8 @@ pub const SANS_FONT: iced::Font = iced::Font {
 };
 
 pub const HEADER_FONT: iced::Font = iced::Font {
-    family: iced::font::Family::Name("Funnel Display"),
-    weight: iced::font::Weight::Medium,
+    family: iced::font::Family::Name("Mona Sans"),
+    weight: iced::font::Weight::Semibold,
     stretch: iced::font::Stretch::Normal,
     style: iced::font::Style::Normal,
 };
@@ -102,6 +105,10 @@ pub fn truncate_text(text: &str, max_len: usize) -> String {
     }
 }
 
+pub fn greyscale(rgb: u8) -> iced::Color {
+    iced::Color::from_rgb8(rgb, rgb, rgb)
+}
+
 #[cfg(target_os = "windows")]
 const OPEN_CMD: &str = "explorer";
 
@@ -115,7 +122,7 @@ pub fn open_path(p: impl AsRef<Path>) {
     let _ = Command::new(OPEN_CMD).arg(p.as_ref().as_os_str()).spawn();
 }
 
-pub fn clear_button(theme: &iced::Theme, status: button::Status) -> button::Style {
+pub fn themed_button(theme: &iced::Theme, status: button::Status) -> button::Style {
     button::Style {
         background: Some(iced::Background::Color(match status {
             button::Status::Active | button::Status::Disabled => iced::Color::TRANSPARENT,
@@ -130,7 +137,7 @@ pub fn clear_button(theme: &iced::Theme, status: button::Status) -> button::Styl
     }
 }
 
-pub fn flat_text_input(theme: &iced::Theme, status: text_input::Status) -> text_input::Style {
+pub fn themed_text_input(theme: &iced::Theme, status: text_input::Status) -> text_input::Style {
     text_input::Style {
         background: iced::Background::Color(match status {
             text_input::Status::Focused => iced::Color::from_rgb8(10, 10, 10),
@@ -150,8 +157,8 @@ pub fn flat_text_input(theme: &iced::Theme, status: text_input::Status) -> text_
     }
 }
 
-pub fn clear_scrollable(theme: &iced::Theme, status: scrollable::Status) -> scrollable::Style {
-    fn clear_rail(hover: bool, dragged: bool) -> scrollable::Rail {
+pub fn themed_scrollable(_theme: &iced::Theme, status: scrollable::Status) -> scrollable::Style {
+    fn themed_rail(hover: bool, dragged: bool) -> scrollable::Rail {
         scrollable::Rail {
             background: None,
             border: Default::default(),
@@ -204,12 +211,66 @@ pub fn clear_scrollable(theme: &iced::Theme, status: scrollable::Status) -> scro
                 blur_radius: 0.0,
             },
         },
-        vertical_rail: clear_rail(hover_vertical, drag_vertical),
-        horizontal_rail: clear_rail(hover_horizontal, drag_horizontal),
+        vertical_rail: themed_rail(hover_vertical, drag_vertical),
+        horizontal_rail: themed_rail(hover_horizontal, drag_horizontal),
         gap: None,
     }
 }
 
 pub fn icon<'a>(codepoint: u32) -> iced::widget::Text<'a> {
     text(char::from_u32(codepoint).expect("valid icon codepoint")).font(ICON_FONT)
+}
+
+pub fn themed_checkbox(_theme: &iced::Theme, status: checkbox::Status) -> checkbox::Style {
+    let is_checked = match status {
+        checkbox::Status::Active { is_checked }
+        | checkbox::Status::Hovered { is_checked }
+        | checkbox::Status::Disabled { is_checked } => is_checked,
+    };
+
+    checkbox::Style {
+        background: match status {
+            checkbox::Status::Active { .. } => {
+                iced::Background::Color(greyscale(0).scale_alpha(0.9))
+            }
+            checkbox::Status::Hovered { .. } => iced::Background::Color(greyscale(0)),
+            checkbox::Status::Disabled { .. } => {
+                iced::Background::Color(greyscale(0).scale_alpha(0.5))
+            }
+        },
+        icon_color: if is_checked {
+            greyscale(200)
+        } else {
+            iced::Color::TRANSPARENT
+        },
+        border: iced::Border {
+            color: greyscale(100).scale_alpha(0.25),
+            width: 1.0,
+            radius: iced::border::radius(3.0),
+        },
+        text_color: None,
+    }
+}
+
+pub fn rich_checkbox<'a, Message>(
+    label: impl Into<iced::Element<'a, Message>>,
+    is_checked: bool,
+    on_toggle: impl Fn(bool) -> Message + Clone + 'a,
+) -> iced::Element<'a, Message>
+where
+    Message: 'a + Clone,
+{
+    button(
+        row![]
+            .spacing(5.0)
+            .push(
+                checkbox("", is_checked)
+                    .style(themed_checkbox)
+                    .on_toggle(on_toggle.clone()),
+            )
+            .push(label),
+    )
+    .on_press_with(move || on_toggle(!is_checked))
+    .style(themed_button)
+    .into()
 }

@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{
     library,
-    ui::{clear_button, icon, HEADER_FONT},
+    ui::{icon, themed_button, HEADER_FONT},
 };
 use iced::widget::{button, column, container, horizontal_space, hover, row, text};
 use itertools::Itertools;
@@ -161,7 +161,7 @@ fn episode_entry<'a>(
                 .push(media_menu(id, library)),
         )
         .width(iced::Length::Fill)
-        .style(clear_button)
+        .style(themed_button)
         .on_press(HomeMessage::Play(id)),
         icon(0xe037)
             .size(26.0)

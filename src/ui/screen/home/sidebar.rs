@@ -1,5 +1,5 @@
 use super::{HomeAction, HomeMessage, Tab};
-use crate::ui::{clear_button, icon, menu_button, LibraryStatus, ICON_FONT};
+use crate::ui::{icon, menu_button, themed_button, LibraryStatus, ICON_FONT};
 use iced::widget::{button, column, container, row, text, vertical_space};
 
 pub fn sidebar<'a>(status: LibraryStatus) -> iced::Element<'a, HomeMessage> {
@@ -66,7 +66,7 @@ pub fn sidebar<'a>(status: LibraryStatus) -> iced::Element<'a, HomeMessage> {
                             },
                         )
                         .height(40.0)
-                        .style(clear_button),
+                        .style(themed_button),
                     ),
             )
             .push(
@@ -100,5 +100,5 @@ fn sidebar_button<'a>(icon: u32, label: &'a str) -> iced::widget::Button<'a, Hom
     .width(iced::Length::Fill)
     .height(40.0)
     .padding(iced::Padding::new(5.0).left(10.0))
-    .style(clear_button)
+    .style(themed_button)
 }

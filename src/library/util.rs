@@ -219,11 +219,8 @@ pub fn series_last_watched(season: MediaId, library: &Library) -> Option<(&Media
     find_all_episodes(season, library).max_by_key(|(_, episode)| episode.video.last_watched)
 }
 
-pub fn last_watched(
-    id: MediaId,
-    media: &Media,
-    library: &Library,
-) -> Option<chrono::DateTime<chrono::Local>> {
+pub fn last_watched(id: MediaId, library: &Library) -> Option<chrono::DateTime<chrono::Local>> {
+    let media = library.get(id)?;
     if let Some(video) = media.video() {
         Some(video.last_watched?)
     } else {
@@ -235,6 +232,32 @@ pub fn last_watched(
         .1
         .video
         .last_watched
+    }
+}
+
+pub fn season_date_added(season: MediaId, library: &Library) -> Option<(&MediaId, &Episode)> {
+    find_episodes(season, library).max_by_key(|(_, episode)| episode.video.added)
+}
+
+pub fn series_date_added(season: MediaId, library: &Library) -> Option<(&MediaId, &Episode)> {
+    find_all_episodes(season, library).max_by_key(|(_, episode)| episode.video.added)
+}
+
+pub fn date_added(id: MediaId, library: &Library) -> Option<chrono::DateTime<chrono::Local>> {
+    let media = library.get(id)?;
+    if let Some(video) = media.video() {
+        Some(video.added)
+    } else {
+        Some(
+            match media {
+                Media::Series(_) => series_last_watched(id, library),
+                Media::Season(_) => season_last_watched(id, library),
+                _ => unreachable!(),
+            }?
+            .1
+            .video
+            .added,
+        )
     }
 }
 

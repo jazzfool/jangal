@@ -2,7 +2,7 @@ mod seekbar;
 
 use crate::{
     library,
-    ui::{clear_button, clear_scrollable, icon, menu_button, AppState, SUBTITLE_FONT},
+    ui::{icon, menu_button, themed_button, themed_scrollable, AppState, SUBTITLE_FONT},
 };
 use gstreamer::prelude::{ElementExt, ObjectExt};
 use iced::widget::{
@@ -799,7 +799,7 @@ fn bottom_bar<'a>(
                                                 .width(iced::Length::Fill)
                                                 .height(30.0)
                                                 .padding(iced::Padding::new(5.0).left(10.0))
-                                                .style(clear_button),
+                                                .style(themed_button),
                                             )
                                             .push(
                                                 subtitle_file
@@ -856,12 +856,12 @@ fn bottom_bar<'a>(
                                                     .width(iced::Length::Fill)
                                                     .height(30.0)
                                                     .padding(iced::Padding::new(5.0).left(10.0))
-                                                    .style(clear_button)
+                                                    .style(themed_button)
                                                     .into()
                                                 },
                                             )),
                                     )
-                                    .style(clear_scrollable),
+                                    .style(themed_scrollable),
                                 )
                                 .max_width(300.0)
                                 .max_height(400.0)

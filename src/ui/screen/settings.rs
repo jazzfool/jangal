@@ -1,6 +1,6 @@
 use super::Screen;
 use crate::ui::{
-    clear_button, flat_text_input, icon, AppState, HEADER_FONT, MONO_FONT, SUBTITLE_FONT,
+    icon, themed_button, themed_text_input, AppState, HEADER_FONT, MONO_FONT, SUBTITLE_FONT,
 };
 use iced::widget::{
     button, column, container, horizontal_rule, horizontal_space, row, rule, scrollable, slider,
@@ -111,7 +111,7 @@ impl Screen for Settings {
                             .spacing(10.0)
                             .push(
                                 button(icon(0xe5c4).size(26.0))
-                                    .style(clear_button)
+                                    .style(themed_button)
                                     .on_press_maybe(
                                         (!self.dialog_open).then_some(SettingsMessage::Back),
                                     ),
@@ -144,7 +144,7 @@ impl Screen for Settings {
                                 .push(
                                     text_input("API Secret", &state.settings.tmdb_secret)
                                         .on_input(SettingsMessage::ApiSecretInput)
-                                        .style(flat_text_input)
+                                        .style(themed_text_input)
                                         .font(MONO_FONT)
                                         .width(iced::Length::FillPortion(2)),
                                 ),
@@ -169,7 +169,7 @@ impl Screen for Settings {
                                                     .spacing(10.0)
                                                     .push(
                                                         button(icon(0xe15b).size(20.0))
-                                                            .style(clear_button)
+                                                            .style(themed_button)
                                                             .on_press(
                                                                 SettingsMessage::RemoveDirectory(i),
                                                             ),
@@ -192,7 +192,7 @@ impl Screen for Settings {
                                             )
                                             .width(iced::Length::Fill)
                                             .padding(iced::Padding::new(5.0).left(10.0))
-                                            .style(clear_button)
+                                            .style(themed_button)
                                             .on_press_maybe(
                                                 (!self.dialog_open)
                                                     .then_some(SettingsMessage::AddDirectory),
@@ -220,7 +220,7 @@ impl Screen for Settings {
                                             .align_x(iced::Alignment::End)
                                             .width(100)
                                             .on_input(SettingsMessage::WatchThresholdMovies)
-                                            .style(flat_text_input),
+                                            .style(themed_text_input),
                                         )
                                         .push("minute(s)")
                                         .push(horizontal_space()),
@@ -249,7 +249,7 @@ impl Screen for Settings {
                                             .align_x(iced::Alignment::End)
                                             .width(100)
                                             .on_input(SettingsMessage::WatchThresholdEpisodes)
-                                            .style(flat_text_input),
+                                            .style(themed_text_input),
                                         )
                                         .push("minute(s)")
                                         .push(horizontal_space()),

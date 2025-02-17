@@ -1,27 +1,78 @@
 mod cards;
 mod seasons;
 mod sidebar;
+mod top_bar;
 
 use super::Screen;
 use crate::{
     library,
     ui::{
-        clear_button, clear_scrollable, flat_text_input, icon, menu_button, open_path, AppState,
-        Tab, HEADER_FONT, ICON_FONT,
+        icon, menu_button, open_path, themed_button, themed_scrollable, AppState, Tab, HEADER_FONT,
+        ICON_FONT,
     },
 };
 use iced::widget::{
-    button, center, column, container, horizontal_rule, horizontal_space, image, row, rule,
-    scrollable, stack, text, text_input, vertical_rule,
+    button, center, column, container, horizontal_rule, image, row, rule, scrollable, stack, text,
+    vertical_rule,
 };
 use itertools::Itertools;
 use std::{
+    fmt,
     path::{Path, PathBuf},
     time::Duration,
 };
+use top_bar::top_bar;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Filter {
+    pub watched: bool,
+    pub partially_watched: bool,
+    pub not_watched: bool,
+}
+
+impl Filter {
+    pub fn filter(&self, id: library::MediaId, library: &library::Library) -> bool {
+        let watched = library::calculate_watched(id, library);
+        match watched {
+            Some(library::Watched::No) => self.not_watched,
+            Some(library::Watched::Partial { .. }) => self.partially_watched,
+            Some(library::Watched::Yes) => self.watched,
+            None => true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sort {
+    Name,
+    Watched,
+    DateAdded,
+    LastWatched,
+}
+
+impl fmt::Display for Sort {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Sort::Name => "Name",
+            Sort::Watched => "Watched",
+            Sort::DateAdded => "Date Added",
+            Sort::LastWatched => "Last Watched",
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SortDirection {
+    Ascending,
+    Descending,
+}
 
 pub struct Home {
     search: String,
+    filter: Filter,
+    sort: Sort,
+    sort_dir: SortDirection,
+
     save_task: Option<iced::task::Handle>, // to debounce saves
 }
 
@@ -30,6 +81,14 @@ impl Home {
         (
             Home {
                 search: String::new(),
+                filter: Filter {
+                    watched: true,
+                    partially_watched: true,
+                    not_watched: true,
+                },
+                sort: Sort::Name,
+                sort_dir: SortDirection::Ascending,
+
                 save_task: None,
             },
             iced::Task::none(),
@@ -92,6 +151,26 @@ impl Screen for Home {
                 open_path(&path);
                 iced::Task::none()
             }
+            HomeMessage::ToggleFilterWatched(toggle) => {
+                self.filter.watched = toggle;
+                iced::Task::none()
+            }
+            HomeMessage::ToggleFilterPartiallyWatched(toggle) => {
+                self.filter.partially_watched = toggle;
+                iced::Task::none()
+            }
+            HomeMessage::ToggleFilterNotWatched(toggle) => {
+                self.filter.not_watched = toggle;
+                iced::Task::none()
+            }
+            HomeMessage::SetSort(sort) => {
+                self.sort = sort;
+                iced::Task::none()
+            }
+            HomeMessage::ToggleSortDirection(sort_dir) => {
+                self.sort_dir = sort_dir;
+                iced::Task::none()
+            }
             _ => iced::Task::none(),
         }
     }
@@ -133,13 +212,9 @@ impl Screen for Home {
                                                 })
                                             }),
                                             &state.library,
-                                            |&(a_id, a), &(b_id, b), _| {
-                                                library::last_watched(*b_id, b, &state.library).cmp(
-                                                    &library::last_watched(
-                                                        *a_id,
-                                                        a,
-                                                        &state.library,
-                                                    ),
+                                            |&(a_id, _), &(b_id, _), _| {
+                                                library::last_watched(*b_id, &state.library).cmp(
+                                                    &library::last_watched(*a_id, &state.library),
                                                 )
                                             },
                                             Some(20),
@@ -165,7 +240,7 @@ impl Screen for Home {
                                         .into(),
                                     Tab::Movies | Tab::TvShows => cards::card_grid(
                                         search,
-                                        state.library.iter().filter(|(_, media)| match tab {
+                                        state.library.iter().filter(|(id, media)| match tab {
                                             Tab::Movies => {
                                                 matches!(media, library::Media::Movie(_))
                                             }
@@ -173,9 +248,11 @@ impl Screen for Home {
                                                 matches!(media, library::Media::Series(_))
                                             }
                                             _ => unreachable!(),
-                                        }),
+                                        } && self.filter.filter(**id, &state.library)),
                                         &state.library,
-                                        cards::sort_alphanumeric,
+                                        |a, b, library| {
+                                            sort_by(a, b, library, self.sort, self.sort_dir)
+                                        },
                                         None,
                                     ),
                                     Tab::TvShow(id) => seasons::season_list(
@@ -211,7 +288,7 @@ impl Screen for Home {
                             )
                             .width(iced::Length::Fill)
                             .height(iced::Length::Fill)
-                            .style(clear_scrollable)
+                            .style(themed_scrollable)
                             .direction(
                                 scrollable::Direction::Vertical(scrollable::Scrollbar::new()),
                             ),
@@ -219,12 +296,20 @@ impl Screen for Home {
                         .clip(true)
                         .width(iced::Length::Fill)
                         .height(iced::Length::Fill)
-                        .padding(iced::Padding::ZERO.top(70.0)),
+                        .padding(iced::Padding::ZERO.top(if matches!(tab, Tab::Movies | Tab::TvShows) { 115.0 } else { 70.0 })),
                     )
                     .push(
                         column![]
                             .width(iced::Length::Fill)
-                            .push(top_bar(&self.search, tab, &state.library))
+                            .height(iced::Length::Shrink)
+                            .push(top_bar(
+                                &self.search,
+                                &self.filter,
+                                tab,
+                                self.sort,
+                                self.sort_dir,
+                                &state.library,
+                            ))
                             .push(horizontal_rule(1.0).style(|theme| rule::Style {
                                 color: iced::Color::from_rgb8(40, 40, 40),
                                 ..<iced::Theme as rule::Catalog>::default()(theme)
@@ -253,6 +338,11 @@ pub enum HomeMessage {
     MarkWatched(library::MediaId),
     MarkUnwatched(library::MediaId),
     OpenDirectory(PathBuf),
+    ToggleFilterWatched(bool),
+    ToggleFilterPartiallyWatched(bool),
+    ToggleFilterNotWatched(bool),
+    SetSort(Sort),
+    ToggleSortDirection(SortDirection),
 }
 
 fn poster_image<'a>(poster: Option<&Path>) -> iced::Element<'a, HomeMessage> {
@@ -442,87 +532,7 @@ fn media_menu<'a, 'b>(
     .padding(0.0)
     .width(30.0)
     .height(30.0)
-    .style(clear_button)
-    .into()
-}
-
-fn top_bar<'a>(
-    search: &str,
-    tab: Tab,
-    library: &library::Library,
-) -> iced::Element<'a, HomeMessage> {
-    container(
-        row![]
-            .width(iced::Length::Fill)
-            .height(iced::Length::Shrink)
-            .spacing(20.0)
-            .align_y(iced::Alignment::Center)
-            .push(
-                button(
-                    icon(0xe5c4)
-                        .size(26.0)
-                        .width(iced::Length::Fill)
-                        .height(iced::Length::Fill)
-                        .align_y(iced::Alignment::Center)
-                        .align_x(iced::Alignment::Center),
-                )
-                .padding(0.0)
-                .width(40.0)
-                .style(clear_button)
-                .on_press(HomeMessage::Back),
-            )
-            .push(
-                text(match tab {
-                    Tab::Home => "Home".into(),
-                    Tab::Movies => "Movies".into(),
-                    Tab::TvShows => "TV Shows".into(),
-                    Tab::TvShow(id) => library.get(id).unwrap().title(),
-                    Tab::Season(id) => {
-                        let library::Media::Season(season) = library.get(id).unwrap() else {
-                            panic!()
-                        };
-                        let series = library.get(season.series).unwrap();
-                        format!(
-                            "{} S{:02} - {}",
-                            series.title(),
-                            season.metadata.season,
-                            season.metadata.title
-                        )
-                    }
-                })
-                .font(HEADER_FONT)
-                .size(28.0)
-                .color(iced::Color::from_rgba8(210, 210, 210, 1.0)),
-            )
-            .push(horizontal_space())
-            .push(
-                text_input("Search", search)
-                    .on_input(HomeMessage::Search)
-                    .width(200.0)
-                    .padding(iced::Padding::new(5.0).left(10.0))
-                    .icon(text_input::Icon {
-                        font: ICON_FONT,
-                        code_point: char::from_u32(0xe8b6).unwrap(),
-                        size: Some(18.0.into()),
-                        spacing: 8.0,
-                        side: text_input::Side::Left,
-                    })
-                    .style(flat_text_input),
-            ),
-    )
-    .width(iced::Length::Fill)
-    .center_y(iced::Length::Fill)
-    .height(70.0)
-    .padding(iced::Padding::new(15.0).right(18.0))
-    .style(|theme: &iced::Theme| container::Style {
-        background: Some(iced::Background::Color(theme.palette().background)),
-        shadow: iced::Shadow {
-            color: iced::Color::BLACK.scale_alpha(1.5),
-            offset: iced::Vector::new(0.0, 1.0),
-            blur_radius: 10.0,
-        },
-        ..Default::default()
-    })
+    .style(themed_button)
     .into()
 }
 
@@ -543,5 +553,38 @@ fn menu_item<'a>(icon: u32, label: &'a str) -> iced::widget::Button<'a, HomeMess
     .width(iced::Length::Fill)
     .height(30.0)
     .padding(iced::Padding::new(5.0).left(10.0))
-    .style(clear_button)
+    .style(themed_button)
+}
+
+fn sort_by(
+    a: &(&library::MediaId, &library::Media),
+    b: &(&library::MediaId, &library::Media),
+    library: &library::Library,
+    sort: Sort,
+    direction: SortDirection,
+) -> std::cmp::Ordering {
+    let a = *a.0;
+    let b = *b.0;
+
+    let ord = match sort {
+        Sort::Name => library::full_title(a, library).cmp(&library::full_title(b, library)),
+        Sort::Watched => library::calculate_watched(a, library)
+            .map(|x| x.percent())
+            .unwrap_or(0.0)
+            .partial_cmp(
+                &library::calculate_watched(b, library)
+                    .map(|x| x.percent())
+                    .unwrap_or(0.0),
+            )
+            .unwrap_or(std::cmp::Ordering::Equal),
+        Sort::DateAdded => library::date_added(a, library).cmp(&library::date_added(b, library)),
+        Sort::LastWatched => {
+            library::last_watched(a, library).cmp(&library::last_watched(b, library))
+        }
+    };
+
+    match direction {
+        SortDirection::Ascending => ord,
+        SortDirection::Descending => ord.reverse(),
+    }
 }
