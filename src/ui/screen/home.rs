@@ -7,8 +7,8 @@ use super::Screen;
 use crate::{
     library,
     ui::{
-        icon, menu_button, open_path, themed_button, themed_scrollable, AppState, Tab, HEADER_FONT,
-        ICON_FONT,
+        find_focused_maybe, icon, menu_button, open_path, themed_button, themed_scrollable,
+        AppState, Tab, HEADER_FONT, ICON_FONT,
     },
 };
 use iced::widget::{
@@ -74,6 +74,7 @@ pub struct Home {
     sort_dir: SortDirection,
 
     save_task: Option<iced::task::Handle>, // to debounce saves
+    sidebar_action: sidebar::Action,
 }
 
 impl Home {
@@ -90,6 +91,7 @@ impl Home {
                 sort_dir: SortDirection::Ascending,
 
                 save_task: None,
+                sidebar_action: sidebar::Action::None,
             },
             iced::Task::none(),
         )
@@ -125,7 +127,7 @@ impl Screen for Home {
             }
             HomeMessage::Goto(tab) => {
                 let last_tab = state.tab_stack.back_mut().unwrap();
-                if last_tab.overwrites(tab) {
+                if last_tab.overwrites(&tab) {
                     *last_tab = tab;
                 } else {
                     state.tab_stack.push_back(tab);
@@ -171,6 +173,93 @@ impl Screen for Home {
                 self.sort_dir = sort_dir;
                 iced::Task::none()
             }
+            HomeMessage::NewCollection => {
+                state.library.insert_collection();
+                iced::Task::none()
+            }
+            HomeMessage::BeginRenameCollection(id) => {
+                if let Some(collection) = state.library.collection(id) {
+                    self.sidebar_action = sidebar::Action::RenameCollection {
+                        id,
+                        name: collection.name().into(),
+                    };
+                } else {
+                    self.sidebar_action = sidebar::Action::None;
+                }
+                iced::advanced::widget::operate(
+                    iced::advanced::widget::operation::focusable::focus(
+                        iced::advanced::widget::Id::new("sidebar_collection_name"),
+                    ),
+                )
+            }
+            HomeMessage::BeginDeleteCollection(id) => {
+                self.sidebar_action = sidebar::Action::DeleteCollection(id);
+                iced::Task::none()
+            }
+            HomeMessage::RenameCollection(id) => {
+                let sidebar::Action::RenameCollection {
+                    id: action_id,
+                    name,
+                } = &self.sidebar_action
+                else {
+                    self.sidebar_action = sidebar::Action::None;
+                    return iced::Task::none();
+                };
+
+                if let Some(collection) = state.library.collection_mut(id) {
+                    if *action_id == id {
+                        collection.set_name(name);
+                    }
+                }
+
+                self.sidebar_action = sidebar::Action::None;
+
+                iced::Task::none()
+            }
+            HomeMessage::DeleteCollection(id) => {
+                if self.sidebar_action != sidebar::Action::DeleteCollection(id) {
+                    self.sidebar_action = sidebar::Action::None;
+                    return iced::Task::none();
+                }
+                self.sidebar_action = sidebar::Action::None;
+
+                state.library.remove_collection(id);
+                iced::Task::none()
+            }
+            HomeMessage::RenameCollectionInput(new_name) => {
+                let sidebar::Action::RenameCollection { name, .. } = &mut self.sidebar_action
+                else {
+                    return iced::Task::none();
+                };
+                *name = new_name;
+                iced::Task::none()
+            }
+            HomeMessage::CancelSidebarAction => {
+                self.sidebar_action = sidebar::Action::None;
+                iced::Task::none()
+            }
+            HomeMessage::CheckCollectionInputFocus => {
+                iced::advanced::widget::operate(find_focused_maybe()).map(|id| {
+                    if id != Some(iced::advanced::widget::Id::new("sidebar_collection_name")) {
+                        HomeMessage::CancelSidebarAction
+                    } else {
+                        HomeMessage::None
+                    }
+                })
+            }
+            HomeMessage::ToggleMediaCollection(media_id, collection_id) => {
+                let Some(collection) = state.library.collection_mut(collection_id) else {
+                    return iced::Task::none();
+                };
+
+                if collection.contains(media_id) {
+                    collection.remove(media_id);
+                } else {
+                    collection.insert(media_id);
+                }
+
+                iced::Task::none()
+            }
             _ => iced::Task::none(),
         }
     }
@@ -180,10 +269,10 @@ impl Screen for Home {
         'a: 'b,
     {
         let search = (!self.search.trim().is_empty()).then_some(self.search.as_str());
-        let tab = state.tab_stack.back().copied().unwrap();
+        let tab = state.tab_stack.back().cloned().unwrap();
 
         row![]
-            .push(sidebar::sidebar(state.library_status))
+            .push(sidebar::sidebar(state.library_status, state.library.iter_collections(), self.sidebar_action.clone()))
             .push(vertical_rule(1.0).style(|theme| rule::Style {
                 color: iced::Color::from_rgb8(40, 40, 40),
                 ..<iced::Theme as rule::Catalog>::default()(theme)
@@ -195,12 +284,21 @@ impl Screen for Home {
                     .push(
                         container(
                             scrollable(
-                                center(match tab {
+                                center(match tab.clone() {
                                     Tab::Home => column![]
                                         .width(iced::Length::Fill)
                                         .padding(iced::Padding::new(40.0).top(20.0).bottom(20.0))
                                         .spacing(10.0)
-                                        .push(text("Keep watching").font(HEADER_FONT).size(24.0))
+                                        .push(
+                                            row![]
+                                                .spacing(30)
+                                                .align_y(iced::alignment::Vertical::Center)
+                                                .push(text("Keep Watching").font(HEADER_FONT).size(24.0))
+                                                .push(horizontal_rule(1.0).style(|theme| rule::Style {
+                                                    color: iced::Color::from_rgb8(40, 40, 40),
+                                                    ..<iced::Theme as rule::Catalog>::default()(theme)
+                                                }))
+                                        )
                                         .push(cards::card_grid(
                                             search,
                                             state.library.iter().filter(|(_, media)| {
@@ -219,7 +317,16 @@ impl Screen for Home {
                                             },
                                             Some(20),
                                         ))
-                                        .push(text("Recently added").font(HEADER_FONT).size(24.0))
+                                        .push(
+                                            row![]
+                                                .spacing(30)
+                                                .align_y(iced::alignment::Vertical::Center)
+                                                .push(text("Recently Added").font(HEADER_FONT).size(24.0))
+                                                .push(horizontal_rule(1.0).style(|theme| rule::Style {
+                                                    color: iced::Color::from_rgb8(40, 40, 40),
+                                                    ..<iced::Theme as rule::Catalog>::default()(theme)
+                                                }))
+                                        )
                                         .push(cards::card_grid(
                                             search,
                                             state.library.iter().filter(|(_, media)| {
@@ -281,6 +388,18 @@ impl Screen for Home {
                                             .unwrap(),
                                         &state.library,
                                     ),
+                                    Tab::Collection(name) => cards::card_grid(
+                                        search,
+                                        state.library
+                                            .collection_iter(&name)
+                                            .unwrap()
+                                            .filter(|(id, _)| self.filter.filter(**id, &state.library)),
+                                        &state.library,
+                                        |a, b, library| {
+                                            sort_by(a, b, library, self.sort, self.sort_dir)
+                                        },
+                                        None,
+                                    ),
                                 })
                                 .height(iced::Length::Shrink)
                                 .align_y(iced::Alignment::Start)
@@ -296,7 +415,7 @@ impl Screen for Home {
                         .clip(true)
                         .width(iced::Length::Fill)
                         .height(iced::Length::Fill)
-                        .padding(iced::Padding::ZERO.top(if matches!(tab, Tab::Movies | Tab::TvShows) { 115.0 } else { 70.0 })),
+                        .padding(iced::Padding::ZERO.top(if matches!(tab, Tab::Movies | Tab::TvShows | Tab::Collection(_)) { 115.0 } else { 70.0 })),
                     )
                     .push(
                         column![]
@@ -317,6 +436,14 @@ impl Screen for Home {
                     ),
             )
             .into()
+    }
+
+    fn subscription(&self) -> iced::Subscription<HomeMessage> {
+        if let sidebar::Action::RenameCollection { .. } = self.sidebar_action {
+            iced::event::listen().map(|_| HomeMessage::CheckCollectionInputFocus)
+        } else {
+            iced::Subscription::none()
+        }
     }
 }
 
@@ -343,6 +470,18 @@ pub enum HomeMessage {
     ToggleFilterNotWatched(bool),
     SetSort(Sort),
     ToggleSortDirection(SortDirection),
+    ToggleMediaCollection(library::MediaId, library::CollectionId),
+
+    NewCollection,
+    BeginRenameCollection(library::CollectionId),
+    BeginDeleteCollection(library::CollectionId),
+    RenameCollection(library::CollectionId),
+    DeleteCollection(library::CollectionId),
+    RenameCollectionInput(String),
+    CancelSidebarAction,
+    CheckCollectionInputFocus,
+
+    None,
 }
 
 fn poster_image<'a>(poster: Option<&Path>) -> iced::Element<'a, HomeMessage> {
@@ -536,7 +675,70 @@ fn media_menu<'a, 'b>(
     .into()
 }
 
-fn menu_item<'a>(icon: u32, label: &'a str) -> iced::widget::Button<'a, HomeMessage> {
+fn collection_menu<'a, 'b>(
+    id: library::MediaId,
+    library: &'b library::Library,
+) -> iced::Element<'a, HomeMessage> {
+    let collections: Vec<_> = library
+        .iter_collections()
+        .map(|(collection_id, collection)| {
+            (
+                *collection_id,
+                collection.name().to_owned(),
+                collection.contains(id),
+            )
+        })
+        .collect();
+
+    menu_button(
+        container(icon(0xe02e).size(20.0)).center(iced::Length::Fill),
+        move || {
+            container(
+                column![]
+                    .width(200.0)
+                    .spacing(5.0)
+                    .extend(
+                        collections
+                            .iter()
+                            .map(|(collection_id, name, in_collection)| {
+                                menu_item(if *in_collection { 0xe834 } else { 0xe835 }, name)
+                                    .on_press(HomeMessage::ToggleMediaCollection(
+                                        id,
+                                        *collection_id,
+                                    ))
+                                    .into()
+                            }),
+                    ),
+            )
+            .padding(5.0)
+            .style(|theme: &iced::Theme| container::Style {
+                background: Some(iced::Background::Color(
+                    theme.extended_palette().background.strong.text,
+                )),
+                border: iced::Border {
+                    color: theme.extended_palette().background.weak.color,
+                    width: 1.0,
+                    radius: iced::border::radius(10.0),
+                },
+                shadow: iced::Shadow {
+                    color: iced::Color::BLACK.scale_alpha(1.2),
+                    offset: iced::Vector::new(0.0, 3.0),
+                    blur_radius: 20.0,
+                },
+                ..Default::default()
+            })
+            .into()
+        },
+    )
+    .auto_close(false)
+    .padding(0.0)
+    .width(30.0)
+    .height(30.0)
+    .style(themed_button)
+    .into()
+}
+
+pub fn menu_item<'a>(icon: u32, label: impl Into<String>) -> iced::widget::Button<'a, HomeMessage> {
     button(
         row![]
             .width(iced::Length::Fill)
@@ -548,7 +750,7 @@ fn menu_item<'a>(icon: u32, label: &'a str) -> iced::widget::Button<'a, HomeMess
                     .font(ICON_FONT)
                     .size(16.0),
             )
-            .push(label),
+            .push(text(label.into())),
     )
     .width(iced::Length::Fill)
     .height(30.0)

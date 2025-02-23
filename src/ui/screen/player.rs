@@ -18,6 +18,8 @@ use std::{
     time::Duration,
 };
 
+use super::Screen;
+
 fn keep_awake() -> keepawake::KeepAwake {
     keepawake::Builder::default()
         .display(true)
@@ -152,39 +154,12 @@ impl Player {
             iced::Task::batch([video_task, thumbnail_task]),
         )
     }
+}
 
-    pub fn subscription(&self) -> iced::Subscription<PlayerMessage> {
-        iced::Subscription::batch([
-            iced::time::every(Duration::from_secs(1)).map(|_| PlayerMessage::UpdateWatched),
-            iced::time::every(Duration::from_secs(60)).map(|_| PlayerMessage::SaveLibrary),
-            iced::keyboard::on_key_press(|key, _| match key {
-                iced::keyboard::Key::Named(iced::keyboard::key::Named::Space) => {
-                    Some(PlayerMessage::TogglePause)
-                }
-                iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowLeft) => {
-                    Some(PlayerMessage::SkipBackward)
-                }
-                iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowRight) => {
-                    Some(PlayerMessage::SkipForward)
-                }
-                iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowUp) => {
-                    Some(PlayerMessage::VolumeUp)
-                }
-                iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowDown) => {
-                    Some(PlayerMessage::VolumeDown)
-                }
-                iced::keyboard::Key::Named(iced::keyboard::key::Named::PageUp) => {
-                    Some(PlayerMessage::Previous)
-                }
-                iced::keyboard::Key::Named(iced::keyboard::key::Named::PageDown) => {
-                    Some(PlayerMessage::Next)
-                }
-                _ => None,
-            }),
-        ])
-    }
+impl Screen for Player {
+    type Message = PlayerMessage;
 
-    pub fn update(
+    fn update(
         &mut self,
         message: PlayerMessage,
         state: &mut AppState,
@@ -476,7 +451,7 @@ impl Player {
         }
     }
 
-    pub fn view<'a, 'b>(&'a self, state: &'a AppState) -> iced::Element<'b, PlayerMessage>
+    fn view<'a, 'b>(&'a self, state: &'a AppState) -> iced::Element<'b, PlayerMessage>
     where
         'a: 'b,
     {
@@ -579,6 +554,37 @@ impl Player {
         )
         .on_press(PlayerMessage::TogglePause)
         .into()
+    }
+
+    fn subscription(&self) -> iced::Subscription<PlayerMessage> {
+        iced::Subscription::batch([
+            iced::time::every(Duration::from_secs(1)).map(|_| PlayerMessage::UpdateWatched),
+            iced::time::every(Duration::from_secs(60)).map(|_| PlayerMessage::SaveLibrary),
+            iced::keyboard::on_key_press(|key, _| match key {
+                iced::keyboard::Key::Named(iced::keyboard::key::Named::Space) => {
+                    Some(PlayerMessage::TogglePause)
+                }
+                iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowLeft) => {
+                    Some(PlayerMessage::SkipBackward)
+                }
+                iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowRight) => {
+                    Some(PlayerMessage::SkipForward)
+                }
+                iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowUp) => {
+                    Some(PlayerMessage::VolumeUp)
+                }
+                iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowDown) => {
+                    Some(PlayerMessage::VolumeDown)
+                }
+                iced::keyboard::Key::Named(iced::keyboard::key::Named::PageUp) => {
+                    Some(PlayerMessage::Previous)
+                }
+                iced::keyboard::Key::Named(iced::keyboard::key::Named::PageDown) => {
+                    Some(PlayerMessage::Next)
+                }
+                _ => None,
+            }),
+        ])
     }
 }
 

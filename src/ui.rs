@@ -5,10 +5,7 @@ pub mod screen;
 pub use menu_button::menu_button;
 
 use crate::{library, settings::UserSettings};
-use iced::{
-    overlay::menu,
-    widget::{button, checkbox, container, pick_list, row, scrollable, text, text_input},
-};
+use iced::widget::{button, checkbox, container, row, scrollable, text, text_input};
 use std::{
     collections::VecDeque,
     future::Future,
@@ -23,12 +20,18 @@ pub enum Tab {
     TvShows,
     TvShow(library::MediaId),
     Season(library::MediaId),
+    Collection(library::CollectionId),
 }
 
 impl Tab {
-    pub fn overwrites(&self, other: Tab) -> bool {
-        matches!(self, Tab::Home | Tab::Movies | Tab::TvShows)
-            && matches!(other, Tab::Home | Tab::Movies | Tab::TvShows)
+    pub fn overwrites(&self, other: &Tab) -> bool {
+        matches!(
+            self,
+            Tab::Home | Tab::Movies | Tab::TvShows | Tab::Collection(_)
+        ) && matches!(
+            other,
+            Tab::Home | Tab::Movies | Tab::TvShows | Tab::Collection(_)
+        )
     }
 }
 
@@ -67,16 +70,33 @@ impl AppState {
     }
 }
 
+#[cfg(target_os = "windows")]
 pub const SANS_FONT: iced::Font = iced::Font {
-    family: iced::font::Family::Name("Work Sans"),
+    family: iced::font::Family::Name("Segoe UI"),
+    weight: iced::font::Weight::Normal,
+    stretch: iced::font::Stretch::Normal,
+    style: iced::font::Style::Normal,
+};
+
+#[cfg(target_os = "macos")]
+pub const SANS_FONT: iced::Font = iced::Font {
+    family: iced::font::Family::Name("SF Pro"),
+    weight: iced::font::Weight::Normal,
+    stretch: iced::font::Stretch::Normal,
+    style: iced::font::Style::Normal,
+};
+
+#[cfg(target_os = "linux")]
+pub const SANS_FONT: iced::Font = iced::Font {
+    family: iced::font::Family::SansSerif,
     weight: iced::font::Weight::Normal,
     stretch: iced::font::Stretch::Normal,
     style: iced::font::Style::Normal,
 };
 
 pub const HEADER_FONT: iced::Font = iced::Font {
-    family: iced::font::Family::Name("Mona Sans"),
-    weight: iced::font::Weight::Semibold,
+    family: iced::font::Family::Name("Work Sans"),
+    weight: iced::font::Weight::Medium,
     stretch: iced::font::Stretch::Normal,
     style: iced::font::Style::Normal,
 };
@@ -84,7 +104,7 @@ pub const HEADER_FONT: iced::Font = iced::Font {
 pub const MONO_FONT: iced::Font = iced::Font::MONOSPACE;
 
 pub const ICON_FONT: iced::Font = iced::Font {
-    family: iced::font::Family::Name("Material Symbols Sharp Filled"),
+    family: iced::font::Family::Name("Material Symbols Rounded Filled 28pt"),
     weight: iced::font::Weight::Normal,
     stretch: iced::font::Stretch::Normal,
     style: iced::font::Style::Normal,
@@ -273,4 +293,39 @@ where
     .on_press_with(move || on_toggle(!is_checked))
     .style(themed_button)
     .into()
+}
+
+pub fn find_focused_maybe(
+) -> impl iced::advanced::widget::Operation<Option<iced::advanced::widget::Id>> {
+    use iced::advanced::widget::{
+        operation::{Focusable, Outcome},
+        Id, Operation,
+    };
+
+    struct FindFocused {
+        focused: Option<Id>,
+    }
+
+    impl Operation<Option<Id>> for FindFocused {
+        fn focusable(&mut self, state: &mut dyn Focusable, id: Option<&Id>) {
+            if state.is_focused() && id.is_some() {
+                self.focused = id.cloned();
+            }
+        }
+
+        fn container(
+            &mut self,
+            _id: Option<&Id>,
+            _bounds: iced::Rectangle,
+            operate_on_children: &mut dyn FnMut(&mut dyn Operation<Option<Id>>),
+        ) {
+            operate_on_children(self);
+        }
+
+        fn finish(&self) -> Outcome<Option<Id>> {
+            Outcome::Some(self.focused.clone())
+        }
+    }
+
+    FindFocused { focused: None }
 }

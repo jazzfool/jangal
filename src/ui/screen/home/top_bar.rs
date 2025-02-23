@@ -19,7 +19,7 @@ pub fn top_bar<'a>(
     sort_dir: SortDirection,
     library: &library::Library,
 ) -> iced::Element<'a, HomeMessage> {
-    let show_filters = matches!(tab, Tab::Movies | Tab::TvShows);
+    let show_filters = matches!(tab, Tab::Movies | Tab::TvShows | Tab::Collection(_));
 
     container(
         column![]
@@ -64,6 +64,11 @@ pub fn top_bar<'a>(
                                     season.metadata.title
                                 )
                             }
+                            Tab::Collection(id) => library
+                                .collection(id)
+                                .map(|collection| collection.name())
+                                .unwrap_or_default()
+                                .into(),
                         })
                         .font(HEADER_FONT)
                         .size(28.0)
@@ -78,7 +83,7 @@ pub fn top_bar<'a>(
                             .icon(text_input::Icon {
                                 font: ICON_FONT,
                                 code_point: char::from_u32(0xe8b6).unwrap(),
-                                size: Some(18.0.into()),
+                                size: Some(15.0.into()),
                                 spacing: 8.0,
                                 side: text_input::Side::Left,
                             })
@@ -99,6 +104,7 @@ pub fn top_bar<'a>(
                     .push(rich_checkbox(
                         row![]
                             .spacing(5.0)
+                            .align_y(iced::alignment::Vertical::Center)
                             .push(icon(0xe8f4).color(iced::Color::from_rgb8(68, 161, 50)))
                             .push("Watched"),
                         filter.watched,
@@ -107,6 +113,7 @@ pub fn top_bar<'a>(
                     .push(rich_checkbox(
                         row![]
                             .spacing(5.0)
+                            .align_y(iced::alignment::Vertical::Center)
                             .push(icon(0xf723).color(iced::Color::from_rgb8(95, 143, 245)))
                             .push("Partially watched"),
                         filter.partially_watched,
@@ -115,6 +122,7 @@ pub fn top_bar<'a>(
                     .push(rich_checkbox(
                         row![]
                             .spacing(5.0)
+                            .align_y(iced::alignment::Vertical::Center)
                             .push(icon(0xe8f5).color(iced::Color::from_rgb8(200, 200, 200)))
                             .push("Not watched"),
                         filter.not_watched,
@@ -125,7 +133,7 @@ pub fn top_bar<'a>(
                         menu_button(
                             row![]
                                 .spacing(5.0)
-                                .push(icon(0xe152))
+                                .push(icon(0xe164))
                                 .push(text(sort.to_string())),
                             || {
                                 container(

@@ -36,17 +36,14 @@ fn main() -> iced::Result {
         })
         .settings(iced::Settings {
             fonts: vec![
-                include_bytes!("ui/resources/WorkSans-Regular.ttf").into(),
-                include_bytes!("ui/resources/WorkSans-Bold.ttf").into(),
-                include_bytes!("ui/resources/WorkSans-Italic.ttf").into(),
-                include_bytes!("ui/resources/WorkSans-BoldItalic.ttf").into(),
-                include_bytes!("ui/resources/MonaSans-SemiBold.ttf").into(),
-                include_bytes!("ui/resources/MaterialSymbolsSharp_Filled-Regular.ttf").into(),
+                include_bytes!("ui/resources/WorkSans-Medium.ttf").into(),
+                include_bytes!("ui/resources/MaterialSymbolsRounded_Filled_28pt-Regular.ttf")
+                    .into(),
                 include_bytes!("ui/resources/NimbusSans-Bold.ttf").into(),
                 include_bytes!("ui/resources/NimbusSans-BoldItalic.ttf").into(),
             ],
             default_font: ui::SANS_FONT,
-            default_text_size: 16.0.into(),
+            default_text_size: 14.0.into(),
             ..Default::default()
         })
         .window(window::Settings {

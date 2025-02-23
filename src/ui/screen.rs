@@ -16,4 +16,8 @@ pub trait Screen {
     fn view<'a, 'b>(&'a self, state: &'a AppState) -> iced::Element<'b, Self::Message>
     where
         'a: 'b;
+
+    fn subscription(&self) -> iced::Subscription<Self::Message> {
+        iced::Subscription::none()
+    }
 }

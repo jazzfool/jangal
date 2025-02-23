@@ -1,4 +1,6 @@
-use super::{media_menu, poster_image, search_maybe, watched_icon, HomeMessage, Tab};
+use super::{
+    collection_menu, media_menu, poster_image, search_maybe, watched_icon, HomeMessage, Tab,
+};
 use crate::{library, ui::icon};
 use iced::widget::{column, container, horizontal_space, hover, mouse_area, row, stack, text};
 
@@ -71,6 +73,7 @@ fn media_card<'a>(
                             true,
                         ))
                         .push(horizontal_space())
+                        .push(collection_menu(id, library))
                         .push(media_menu(id, library)),
                 )
                 .width(iced::Length::Fill)

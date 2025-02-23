@@ -1,10 +1,9 @@
-use std::collections::VecDeque;
-
 use super::{
     screen::{self, Screen},
     AppState, LibraryStatus, Tab,
 };
 use crate::{library, settings::UserSettings};
+use std::collections::VecDeque;
 
 pub struct App {
     screen: AppScreen,
@@ -43,8 +42,9 @@ impl App {
     pub fn subscription(&self) -> iced::Subscription<Message> {
         iced::Subscription::batch([
             match &self.screen {
-                AppScreen::Player(player) => player.subscription().map(Message::Player),
-                _ => iced::Subscription::none(),
+                AppScreen::Home(screen) => screen.subscription().map(Message::Home),
+                AppScreen::Player(screen) => screen.subscription().map(Message::Player),
+                AppScreen::Settings(screen) => screen.subscription().map(Message::Settings),
             },
             iced::event::listen_with(|event, _, _| match event {
                 iced::Event::Window(iced::window::Event::CloseRequested) => Some(Message::Exit),
@@ -175,6 +175,7 @@ impl App {
                 for id in removed {
                     self.state.library.remove(id);
                 }
+                self.state.library.purge_collections();
                 self.state.library.save(&self.state.storage_path).unwrap();
                 if scan {
                     iced::Task::done(Message::ScanDirectories)

@@ -39,6 +39,7 @@ where
     height: iced::Length,
     location: Location,
     padding: iced::Padding,
+    auto_close: bool,
     class: Theme::Class<'a>,
 }
 
@@ -62,6 +63,7 @@ where
             height: size.height.fluid(),
             location: Location::Auto,
             padding: iced::Padding::new(5.0).left(10.0).right(10.0),
+            auto_close: true,
             class: Theme::default(),
         }
     }
@@ -88,6 +90,11 @@ where
 
     pub fn padding<P: Into<iced::Padding>>(mut self, padding: P) -> Self {
         self.padding = padding.into();
+        self
+    }
+
+    pub fn auto_close(mut self, auto_close: bool) -> Self {
+        self.auto_close = auto_close;
         self
     }
 
@@ -291,6 +298,7 @@ where
                 layout.position() + translation,
                 layout.bounds().size(),
                 self.location,
+                self.auto_close,
             )))
         })
     }
@@ -314,6 +322,7 @@ struct MenuButtonOverlay<'a, Message, Theme, Renderer> {
     position: iced::Point,
     content_size: iced::Size,
     location: Location,
+    auto_close: bool,
 }
 
 impl<'a, Message, Theme, Renderer> MenuButtonOverlay<'a, Message, Theme, Renderer> {
@@ -323,6 +332,7 @@ impl<'a, Message, Theme, Renderer> MenuButtonOverlay<'a, Message, Theme, Rendere
         position: iced::Point,
         content_size: iced::Size,
         location: Location,
+        auto_close: bool,
     ) -> Self {
         MenuButtonOverlay {
             tree,
@@ -330,6 +340,7 @@ impl<'a, Message, Theme, Renderer> MenuButtonOverlay<'a, Message, Theme, Rendere
             position,
             content_size,
             location,
+            auto_close,
         }
     }
 }
@@ -400,16 +411,28 @@ where
         clipboard: &mut dyn iced::advanced::Clipboard,
         shell: &mut iced::advanced::Shell<'_, Message>,
     ) -> event::Status {
-        self.content.as_widget_mut().on_event(
+        let status = self.content.as_widget_mut().on_event(
             &mut self.tree.children[1],
-            event,
+            event.clone(),
             layout,
             cursor,
             renderer,
             clipboard,
             shell,
             &layout.bounds(),
-        )
+        );
+
+        if self.auto_close && status == event::Status::Captured {
+            match event {
+                iced::Event::Mouse(iced::mouse::Event::ButtonReleased(_)) => {
+                    let state = self.tree.state.downcast_mut::<State>();
+                    state.is_open = false;
+                }
+                _ => {}
+            }
+        }
+
+        status
     }
 
     fn mouse_interaction(

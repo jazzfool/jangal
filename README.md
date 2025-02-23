@@ -21,3 +21,7 @@ Desktop-centric native media explorer and player.
 - Be an all-in-one media manager/server. This is not a Plex/Jellyfin/etc alternative.
 - Support non-desktop platforms (e.g., smart TV). In fact, Kodi lacking a good desktop UX
   was the motivating factor for Jangal.
+
+## License
+
+This project is licensed under GPLv3
