@@ -28,6 +28,7 @@ url = "2.5.2"
 keepawake = "0.5"
 tokio = "1.41"
 locale-codes = "0.3"
+html-escape = "0.2.13"
 
 [profile.release-debug]
 inherits = "release"

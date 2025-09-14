@@ -1,5 +1,6 @@
 mod seekbar;
 
+use super::Screen;
 use crate::{
     library,
     ui::{icon, menu_button, themed_button, themed_scrollable, AppState, SUBTITLE_FONT},
@@ -17,8 +18,6 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-
-use super::Screen;
 
 fn keep_awake() -> keepawake::KeepAwake {
     keepawake::Builder::default()
@@ -210,7 +209,8 @@ impl Screen for Player {
                 iced::Task::none()
             }
             PlayerMessage::NewSubtitle(subtitle) => {
-                self.subtitle = subtitle;
+                self.subtitle =
+                    subtitle.map(|s| html_escape::decode_html_entities(&s).into_owned());
                 iced::Task::none()
             }
             PlayerMessage::Seek(secs) => {

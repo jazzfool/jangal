@@ -250,8 +250,8 @@ pub fn date_added(id: MediaId, library: &Library) -> Option<chrono::DateTime<chr
     } else {
         Some(
             match media {
-                Media::Series(_) => series_last_watched(id, library),
-                Media::Season(_) => season_last_watched(id, library),
+                Media::Series(_) => series_date_added(id, library),
+                Media::Season(_) => season_date_added(id, library),
                 _ => unreachable!(),
             }?
             .1
