@@ -272,12 +272,12 @@ impl Screen for Player {
                 self.hide_mouse = false;
                 self.mouse_moved_at = iced::time::Instant::now();
                 iced::Task::future(async {
-                    tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
                     PlayerMessage::HideControls
                 })
             }
             PlayerMessage::HideControls => {
-                self.hide_mouse = self.mouse_moved_at.elapsed().as_secs_f32() >= 4.0;
+                self.hide_mouse = self.mouse_moved_at.elapsed().as_secs_f32() >= 3.0;
                 iced::Task::none()
             }
             PlayerMessage::ToggleFullscreen => {
@@ -487,8 +487,8 @@ impl Screen for Player {
             None => "Unknown Media".into(),
         };
 
-        //let mouse_interacting = self.show_controls || self.subtitle_menu_open || self.dialog_open;
-        let mouse_interacting = !self.hide_mouse;
+        let mouse_interacting =
+            !self.hide_mouse || self.video.as_ref().is_some_and(|video| video.paused());
 
         mouse_area(
             stack![]
@@ -560,7 +560,7 @@ impl Screen for Player {
                         })),
                 ),
         )
-        .interaction(if mouse_interacting || !self.hide_mouse {
+        .interaction(if mouse_interacting {
             Interaction::Idle
         } else {
             Interaction::Hidden
