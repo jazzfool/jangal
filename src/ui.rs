@@ -146,7 +146,7 @@ pub fn themed_button(theme: &iced::Theme, status: button::Status) -> button::Sty
     button::Style {
         background: Some(iced::Background::Color(match status {
             button::Status::Active | button::Status::Disabled => iced::Color::TRANSPARENT,
-            _ => iced::Color::from_rgba8(255, 255, 255, 0.03),
+            _ => iced::Color::from_rgba8(255, 255, 255, 0.1),
         })),
         border: iced::Border::default().rounded(5.0),
         text_color: match status {
@@ -160,14 +160,14 @@ pub fn themed_button(theme: &iced::Theme, status: button::Status) -> button::Sty
 pub fn themed_text_input(theme: &iced::Theme, status: text_input::Status) -> text_input::Style {
     text_input::Style {
         background: iced::Background::Color(match status {
-            text_input::Status::Focused => iced::Color::from_rgb8(10, 10, 10),
+            text_input::Status::Focused { .. } => iced::Color::from_rgb8(10, 10, 10),
             _ => iced::Color::from_rgb8(50, 50, 50),
         }),
         border: iced::Border::default()
             .rounded(5.0)
             .color(iced::Color::from_rgb8(30, 30, 30))
             .width(match status {
-                text_input::Status::Focused => 1.0,
+                text_input::Status::Focused { .. } => 1.0,
                 _ => 0.0,
             }),
         icon: theme.palette().text,
@@ -183,13 +183,13 @@ pub fn themed_scrollable(_theme: &iced::Theme, status: scrollable::Status) -> sc
             background: None,
             border: Default::default(),
             scroller: scrollable::Scroller {
-                color: iced::Color::WHITE.scale_alpha(if dragged {
+                background: iced::Background::Color(iced::Color::WHITE.scale_alpha(if dragged {
                     0.6
                 } else if hover {
                     0.4
                 } else {
                     0.2
-                }),
+                })),
                 border: iced::Border::default()
                     .rounded(5.0)
                     .color(iced::Color::TRANSPARENT)
@@ -202,6 +202,7 @@ pub fn themed_scrollable(_theme: &iced::Theme, status: scrollable::Status) -> sc
         scrollable::Status::Hovered {
             is_vertical_scrollbar_hovered,
             is_horizontal_scrollbar_hovered,
+            ..
         } => (
             is_vertical_scrollbar_hovered,
             is_horizontal_scrollbar_hovered,
@@ -213,6 +214,7 @@ pub fn themed_scrollable(_theme: &iced::Theme, status: scrollable::Status) -> sc
         scrollable::Status::Dragged {
             is_vertical_scrollbar_dragged,
             is_horizontal_scrollbar_dragged,
+            ..
         } => (
             is_vertical_scrollbar_dragged,
             is_horizontal_scrollbar_dragged,
@@ -223,17 +225,45 @@ pub fn themed_scrollable(_theme: &iced::Theme, status: scrollable::Status) -> sc
     scrollable::Style {
         container: container::Style {
             text_color: None,
-            background: None,
+            background: Some(iced::Background::Color(iced::Color::BLACK)),
             border: Default::default(),
             shadow: iced::Shadow {
                 color: iced::Color::TRANSPARENT,
                 offset: iced::Vector::ZERO,
                 blur_radius: 0.0,
             },
+            snap: false,
         },
         vertical_rail: themed_rail(hover_vertical, drag_vertical),
         horizontal_rail: themed_rail(hover_horizontal, drag_horizontal),
         gap: None,
+        auto_scroll: scrollable::AutoScroll {
+            background: iced::Background::Color(iced::Color::WHITE.scale_alpha(0.6)),
+            border: Default::default(),
+            shadow: iced::Shadow {
+                color: iced::Color::TRANSPARENT,
+                offset: iced::Vector::ZERO,
+                blur_radius: 0.0,
+            },
+            icon: iced::Color::WHITE.scale_alpha(0.6),
+        },
+    }
+}
+
+pub fn themed_menu(theme: &iced::Theme) -> container::Style {
+    container::Style {
+        background: Some(iced::Background::Color(iced::Color::BLACK)),
+        border: iced::Border {
+            color: theme.extended_palette().background.weak.color,
+            width: 1.0,
+            radius: iced::border::radius(10.0),
+        },
+        shadow: iced::Shadow {
+            color: iced::Color::BLACK.scale_alpha(0.8),
+            offset: iced::Vector::new(0.0, 3.0),
+            blur_radius: 20.0,
+        },
+        ..Default::default()
     }
 }
 
@@ -284,7 +314,7 @@ where
         row![]
             .spacing(5.0)
             .push(
-                checkbox("", is_checked)
+                checkbox(is_checked)
                     .style(themed_checkbox)
                     .on_toggle(on_toggle.clone()),
             )
@@ -295,11 +325,11 @@ where
     .into()
 }
 
-pub fn find_focused_maybe(
-) -> impl iced::advanced::widget::Operation<Option<iced::advanced::widget::Id>> {
+pub fn find_focused_maybe()
+-> impl iced::advanced::widget::Operation<Option<iced::advanced::widget::Id>> {
     use iced::advanced::widget::{
-        operation::{Focusable, Outcome},
         Id, Operation,
+        operation::{Focusable, Outcome},
     };
 
     struct FindFocused {
@@ -307,19 +337,22 @@ pub fn find_focused_maybe(
     }
 
     impl Operation<Option<Id>> for FindFocused {
-        fn focusable(&mut self, state: &mut dyn Focusable, id: Option<&Id>) {
+        fn traverse(
+            &mut self,
+            operate: &mut dyn FnMut(&mut dyn iced::advanced::widget::Operation<Option<Id>>),
+        ) {
+            operate(self);
+        }
+
+        fn focusable(
+            &mut self,
+            id: Option<&Id>,
+            _bounds: iced::Rectangle,
+            state: &mut dyn Focusable,
+        ) {
             if state.is_focused() && id.is_some() {
                 self.focused = id.cloned();
             }
-        }
-
-        fn container(
-            &mut self,
-            _id: Option<&Id>,
-            _bounds: iced::Rectangle,
-            operate_on_children: &mut dyn FnMut(&mut dyn Operation<Option<Id>>),
-        ) {
-            operate_on_children(self);
         }
 
         fn finish(&self) -> Outcome<Option<Id>> {

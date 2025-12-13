@@ -3,12 +3,17 @@ mod seekbar;
 use super::Screen;
 use crate::{
     library,
-    ui::{icon, menu_button, themed_button, themed_scrollable, AppState, SUBTITLE_FONT},
+    ui::{
+        AppState, SUBTITLE_FONT, icon, menu_button, themed_button, themed_menu, themed_scrollable,
+    },
 };
 use gstreamer::prelude::{ElementExt, ObjectExt};
-use iced::widget::{
-    button, center, column, container, horizontal_space, image, mouse_area, row, scrollable,
-    slider, stack, text, vertical_space,
+use iced::{
+    mouse::Interaction,
+    widget::{
+        button, center, column, container, image, mouse_area, opaque, row, scrollable, slider,
+        space, stack, text,
+    },
 };
 use iced_video_player::{Position, Video, VideoPlayer};
 use rfd::AsyncFileDialog;
@@ -48,7 +53,8 @@ pub struct Player {
     duration: f64,
     position: f64,
     dragging: bool,
-    show_controls: bool,
+    hide_mouse: bool,
+    mouse_moved_at: iced::time::Instant,
     is_fullscreen: bool,
     subtitle_streams: Vec<String>,
     thumbnails: Vec<image::Handle>,
@@ -140,7 +146,8 @@ impl Player {
                 duration: 0.0,
                 position: 0.0,
                 dragging: false,
-                show_controls: false,
+                hide_mouse: false,
+                mouse_moved_at: iced::time::Instant::now(),
                 is_fullscreen: false,
                 subtitle_streams: vec![],
                 thumbnails: vec![],
@@ -261,20 +268,24 @@ impl Screen for Player {
                 video.set_muted(!video.muted());
                 iced::Task::none()
             }
-            PlayerMessage::MouseEnter => {
-                self.show_controls = true;
-                iced::Task::none()
+            PlayerMessage::MouseMove => {
+                self.hide_mouse = false;
+                self.mouse_moved_at = iced::time::Instant::now();
+                iced::Task::future(async {
+                    tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+                    PlayerMessage::HideControls
+                })
             }
-            PlayerMessage::MouseExit => {
-                self.show_controls = false;
+            PlayerMessage::HideControls => {
+                self.hide_mouse = self.mouse_moved_at.elapsed().as_secs_f32() >= 4.0;
                 iced::Task::none()
             }
             PlayerMessage::ToggleFullscreen => {
                 self.is_fullscreen = !self.is_fullscreen;
                 let fullscreen = self.is_fullscreen;
-                iced::window::get_latest()
+                iced::window::latest()
                     .and_then(move |id| {
-                        iced::window::change_mode::<()>(
+                        iced::window::set_mode::<()>(
                             id,
                             if fullscreen {
                                 iced::window::Mode::Fullscreen
@@ -326,7 +337,6 @@ impl Screen for Player {
                     let Player { is_fullscreen, .. } = *self;
                     let (screen, task) = Player::new(previous, state);
                     *self = screen;
-                    self.show_controls = true;
                     self.is_fullscreen = is_fullscreen;
                     task
                 } else {
@@ -338,7 +348,6 @@ impl Screen for Player {
                     let Player { is_fullscreen, .. } = *self;
                     let (screen, task) = Player::new(next, state);
                     *self = screen;
-                    self.show_controls = true;
                     self.is_fullscreen = is_fullscreen;
                     task
                 } else {
@@ -478,6 +487,9 @@ impl Screen for Player {
             None => "Unknown Media".into(),
         };
 
+        //let mouse_interacting = self.show_controls || self.subtitle_menu_open || self.dialog_open;
+        let mouse_interacting = !self.hide_mouse;
+
         mouse_area(
             stack![]
                 .width(iced::Length::Fill)
@@ -499,7 +511,7 @@ impl Screen for Player {
                         ..Default::default()
                     }),
                 )
-                .push_maybe(
+                .push(
                     state
                         .settings
                         .show_subtitles
@@ -533,15 +545,11 @@ impl Screen for Player {
                     column![]
                         .width(iced::Length::Fill)
                         .height(iced::Length::Fill)
-                        .push(top_bar(
-                            self.show_controls || self.subtitle_menu_open || self.dialog_open,
-                            title,
-                            self.is_fullscreen,
-                        ))
-                        .push(vertical_space().height(iced::Length::Fill))
-                        .push_maybe(self.video.as_ref().map(|video| {
+                        .push(top_bar(mouse_interacting, title, self.is_fullscreen))
+                        .push(space::vertical().height(iced::Length::Fill))
+                        .push(self.video.as_ref().map(|video| {
                             bottom_bar(
-                                self.show_controls || self.subtitle_menu_open || self.dialog_open,
+                                mouse_interacting,
                                 self.position,
                                 self.subtitle_streams.clone(),
                                 self.selected_subtitle.clone(),
@@ -552,6 +560,12 @@ impl Screen for Player {
                         })),
                 ),
         )
+        .interaction(if mouse_interacting || !self.hide_mouse {
+            Interaction::Idle
+        } else {
+            Interaction::Hidden
+        })
+        .on_move(|_| PlayerMessage::MouseMove)
         .on_press(PlayerMessage::TogglePause)
         .into()
     }
@@ -560,29 +574,35 @@ impl Screen for Player {
         iced::Subscription::batch([
             iced::time::every(Duration::from_secs(1)).map(|_| PlayerMessage::UpdateWatched),
             iced::time::every(Duration::from_secs(60)).map(|_| PlayerMessage::SaveLibrary),
-            iced::keyboard::on_key_press(|key, _| match key {
-                iced::keyboard::Key::Named(iced::keyboard::key::Named::Space) => {
-                    Some(PlayerMessage::TogglePause)
+            iced::keyboard::listen().filter_map(|event| {
+                if let iced::keyboard::Event::KeyPressed { key, .. } = event {
+                    match key {
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::Space) => {
+                            Some(PlayerMessage::TogglePause)
+                        }
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowLeft) => {
+                            Some(PlayerMessage::SkipBackward)
+                        }
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowRight) => {
+                            Some(PlayerMessage::SkipForward)
+                        }
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowUp) => {
+                            Some(PlayerMessage::VolumeUp)
+                        }
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowDown) => {
+                            Some(PlayerMessage::VolumeDown)
+                        }
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::PageUp) => {
+                            Some(PlayerMessage::Previous)
+                        }
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::PageDown) => {
+                            Some(PlayerMessage::Next)
+                        }
+                        _ => None,
+                    }
+                } else {
+                    None
                 }
-                iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowLeft) => {
-                    Some(PlayerMessage::SkipBackward)
-                }
-                iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowRight) => {
-                    Some(PlayerMessage::SkipForward)
-                }
-                iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowUp) => {
-                    Some(PlayerMessage::VolumeUp)
-                }
-                iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowDown) => {
-                    Some(PlayerMessage::VolumeDown)
-                }
-                iced::keyboard::Key::Named(iced::keyboard::key::Named::PageUp) => {
-                    Some(PlayerMessage::Previous)
-                }
-                iced::keyboard::Key::Named(iced::keyboard::key::Named::PageDown) => {
-                    Some(PlayerMessage::Next)
-                }
-                _ => None,
             }),
         ])
     }
@@ -603,8 +623,8 @@ pub enum PlayerMessage {
     TogglePause,
     ToggleMute,
     Back,
-    MouseEnter,
-    MouseExit,
+    MouseMove,
+    HideControls,
     ToggleFullscreen,
     ToggleSubtitles,
     UpdateWatched,
@@ -629,7 +649,7 @@ fn top_bar<'a>(show: bool, title: String, is_fullscreen: bool) -> iced::Element<
                 .align_y(iced::Alignment::Center)
                 .push(control_button(icon(0xe5c4), PlayerMessage::Back, false))
                 .push(text(title))
-                .push(horizontal_space())
+                .push(space::horizontal())
                 .push(control_button(
                     icon(if is_fullscreen { 0xe5d1 } else { 0xe5d0 }),
                     PlayerMessage::ToggleFullscreen,
@@ -650,10 +670,9 @@ fn top_bar<'a>(show: bool, title: String, is_fullscreen: bool) -> iced::Element<
         .height(60.0)
         .into()
     } else {
-        iced::Element::from(vertical_space().width(iced::Length::Fill).height(60.0))
+        iced::Element::from(space::vertical().width(iced::Length::Fill).height(60.0))
     })
-    .on_enter(PlayerMessage::MouseEnter)
-    .on_exit(PlayerMessage::MouseExit)
+    .on_move(|_| PlayerMessage::MouseMove)
     .into()
 }
 
@@ -768,7 +787,7 @@ fn bottom_bar<'a>(
                     .align_y(iced::Alignment::Center)
                     .spacing(10.0)
                     .width(iced::Length::Fill)
-                    .push(horizontal_space())
+                    .push(space::horizontal())
                     .push(control_button(
                         icon(if state.settings.show_subtitles {
                             0xe048
@@ -786,58 +805,66 @@ fn bottom_bar<'a>(
                                     .color(iced::Color::from_rgb8(220, 220, 220)),
                             )
                             .center(iced::Length::Fill),
-                            move || {
+                            {
                                 let subtitle_streams = subtitle_streams.clone();
                                 let subtitle_file = subtitle_file.clone();
-                                container(
-                                    scrollable(
-                                        column![]
-                                            .push(
-                                                button(
-                                                    row![]
-                                                        .spacing(5.0)
-                                                        .push(icon(0xeaf3).size(16.0).color(
-                                                            iced::Color::from_rgb8(220, 220, 220),
-                                                        ))
-                                                        .push(text("Load subtitles from file")),
+                                opaque(
+                                    container(
+                                        scrollable(
+                                            column![]
+                                                .push(
+                                                    button(
+                                                        row![]
+                                                            .spacing(5.0)
+                                                            .push(icon(0xeaf3).size(16.0).color(
+                                                                iced::Color::from_rgb8(
+                                                                    220, 220, 220,
+                                                                ),
+                                                            ))
+                                                            .push(text("Load subtitles from file")),
+                                                    )
+                                                    .on_press(PlayerMessage::OpenSubtitleFilePicker)
+                                                    .width(iced::Length::Fill)
+                                                    .height(30.0)
+                                                    .padding(iced::Padding::new(5.0).left(10.0))
+                                                    .style(themed_button),
                                                 )
-                                                .on_press(PlayerMessage::OpenSubtitleFilePicker)
-                                                .width(iced::Length::Fill)
-                                                .height(30.0)
-                                                .padding(iced::Padding::new(5.0).left(10.0))
-                                                .style(themed_button),
-                                            )
-                                            .push(
-                                                subtitle_file
-                                                    .map(|subtitle_file| {
-                                                        iced::Element::from(
-                                                            row![]
-                                                                .spacing(5.0)
-                                                                .width(iced::Length::Fill)
-                                                                .height(30.0)
-                                                                .padding(
-                                                                    iced::Padding::new(5.0)
-                                                                        .left(10.0),
-                                                                )
-                                                                .push(
-                                                                    icon(0xe5ca).size(16.0).color(
-                                                                        iced::Color::from_rgb8(
-                                                                            220, 220, 220,
+                                                .push(
+                                                    subtitle_file
+                                                        .map(|subtitle_file| {
+                                                            iced::Element::from(
+                                                                row![]
+                                                                    .spacing(5.0)
+                                                                    .width(iced::Length::Fill)
+                                                                    .height(30.0)
+                                                                    .padding(
+                                                                        iced::Padding::new(5.0)
+                                                                            .left(10.0),
+                                                                    )
+                                                                    .push(
+                                                                        icon(0xe5ca)
+                                                                            .size(16.0)
+                                                                            .color(
+                                                                            iced::Color::from_rgb8(
+                                                                                220, 220, 220,
+                                                                            ),
+                                                                        ),
+                                                                    )
+                                                                    .push(
+                                                                        text(subtitle_file).color(
+                                                                            iced::Color::from_rgba8(
+                                                                                220, 220, 220, 0.5,
+                                                                            ),
                                                                         ),
                                                                     ),
-                                                                )
-                                                                .push(text(subtitle_file).color(
-                                                                    iced::Color::from_rgba8(
-                                                                        220, 220, 220, 0.5,
-                                                                    ),
-                                                                )),
-                                                        )
-                                                    })
-                                                    .unwrap_or_else(|| row![].into()),
-                                            )
-                                            .extend(subtitle_streams.into_iter().enumerate().map(
-                                                |(i, name)| {
-                                                    button(
+                                                            )
+                                                        })
+                                                        .unwrap_or_else(|| row![].into()),
+                                                )
+                                                .extend(
+                                                    subtitle_streams.into_iter().enumerate().map(
+                                                        |(i, name)| {
+                                                            button(
                                                         row![]
                                                             .spacing(5.0)
                                                             .push(icon(0xe5ca).size(16.0).color(
@@ -864,31 +891,17 @@ fn bottom_bar<'a>(
                                                     .padding(iced::Padding::new(5.0).left(10.0))
                                                     .style(themed_button)
                                                     .into()
-                                                },
-                                            )),
+                                                        },
+                                                    ),
+                                                ),
+                                        )
+                                        .style(themed_scrollable),
                                     )
-                                    .style(themed_scrollable),
+                                    .max_width(300.0)
+                                    .max_height(400.0)
+                                    .padding(5.0)
+                                    .style(themed_menu),
                                 )
-                                .max_width(300.0)
-                                .max_height(400.0)
-                                .padding(5.0)
-                                .style(|theme: &iced::Theme| container::Style {
-                                    background: Some(iced::Background::Color(
-                                        theme.extended_palette().background.strong.text,
-                                    )),
-                                    border: iced::Border {
-                                        color: theme.extended_palette().background.weak.color,
-                                        width: 1.0,
-                                        radius: iced::border::radius(10.0),
-                                    },
-                                    shadow: iced::Shadow {
-                                        color: iced::Color::BLACK.scale_alpha(1.2),
-                                        offset: iced::Vector::new(0.0, 3.0),
-                                        blur_radius: 20.0,
-                                    },
-                                    ..Default::default()
-                                })
-                                .into()
                             },
                         )
                         .on_toggle(PlayerMessage::ToggleSubtitleMenuOpen)
@@ -937,10 +950,9 @@ fn bottom_bar<'a>(
         .height(160.0)
         .into()
     } else {
-        iced::Element::from(vertical_space().width(iced::Length::Fill).height(160.0))
+        iced::Element::from(space::vertical().width(iced::Length::Fill).height(160.0))
     })
-    .on_enter(PlayerMessage::MouseEnter)
-    .on_exit(PlayerMessage::MouseExit)
+    .on_move(|_| PlayerMessage::MouseMove)
     .into()
 }
 

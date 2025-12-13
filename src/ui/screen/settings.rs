@@ -3,8 +3,7 @@ use crate::ui::{
     icon, themed_button, themed_text_input, AppState, HEADER_FONT, MONO_FONT, SUBTITLE_FONT,
 };
 use iced::widget::{
-    button, column, container, horizontal_rule, horizontal_space, row, rule, scrollable, slider,
-    text, text_input,
+    button, column, container, row, rule, scrollable, slider, space, text, text_input,
 };
 use normpath::PathExt;
 use rfd::AsyncFileDialog;
@@ -129,7 +128,7 @@ impl Screen for Settings {
                         ..Default::default()
                     }),
                 )
-                .push(horizontal_rule(1.0).style(|theme| rule::Style {
+                .push(rule::horizontal(1.0).style(|theme| rule::Style {
                     color: iced::Color::from_rgb8(40, 40, 40),
                     ..<iced::Theme as rule::Catalog>::default()(theme)
                 }))
@@ -178,7 +177,7 @@ impl Screen for Settings {
                                                         text(path.to_str().unwrap().to_string())
                                                             .font(MONO_FONT),
                                                     )
-                                                    .push(horizontal_space())
+                                                    .push(space::horizontal())
                                                     .into()
                                                 }),
                                         )
@@ -223,7 +222,7 @@ impl Screen for Settings {
                                             .style(themed_text_input),
                                         )
                                         .push("minute(s)")
-                                        .push(horizontal_space()),
+                                        .push(space::horizontal()),
                                 ),
                         )
                         .push(
@@ -252,7 +251,7 @@ impl Screen for Settings {
                                             .style(themed_text_input),
                                         )
                                         .push("minute(s)")
-                                        .push(horizontal_space()),
+                                        .push(space::horizontal()),
                                 ),
                         )
                         .push(
@@ -277,7 +276,7 @@ impl Screen for Settings {
                                             "{}%",
                                             (state.settings.subtitle_opacity * 100.0) as u32,
                                         )))
-                                        .push(horizontal_space()),
+                                        .push(space::horizontal()),
                                 ),
                         )
                         .push(
@@ -299,7 +298,7 @@ impl Screen for Settings {
                                             .step(1.0),
                                         )
                                         .push(text(state.settings.subtitle_size as u32))
-                                        .push(horizontal_space()),
+                                        .push(space::horizontal()),
                                 ),
                         )
                         .push(
@@ -352,7 +351,7 @@ impl Screen for Settings {
                                             "{}s",
                                             state.settings.thumbnail_interval
                                         )))
-                                        .push(horizontal_space()),
+                                        .push(space::horizontal()),
                                 ),
                         ),
                 )),

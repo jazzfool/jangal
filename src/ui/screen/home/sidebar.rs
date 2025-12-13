@@ -1,14 +1,12 @@
-use super::{menu_item, HomeAction, HomeMessage, Tab};
+use super::{HomeAction, HomeMessage, Tab, menu_item};
 use crate::{
     library,
     ui::{
-        icon, menu_button, themed_button, themed_text_input, truncate_text, LibraryStatus,
-        ICON_FONT,
+        ICON_FONT, LibraryStatus, icon, menu_button, themed_button, themed_menu, themed_text_input,
+        truncate_text,
     },
 };
-use iced::widget::{
-    button, column, container, horizontal_space, hover, row, text, text_input, vertical_space,
-};
+use iced::widget::{button, column, container, hover, opaque, row, space, text, text_input};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
@@ -57,7 +55,7 @@ pub fn sidebar<'a>(
                             .height(iced::Length::Fill)
                             .align_y(iced::Alignment::Center)
                             .push(text(truncate_text(collection.name(), 18)))
-                            .push(horizontal_space())
+                            .push(space::horizontal())
                             .push(
                                 button(
                                     container(
@@ -93,54 +91,31 @@ pub fn sidebar<'a>(
                             .height(iced::Length::Fill)
                             .padding(iced::Padding::new(0.0).right(5.0))
                             .align_y(iced::Alignment::Center)
-                            .push(horizontal_space())
-                            .push_maybe((!matches!(action, Action::DeleteCollection(_))).then(
-                                || {
-                                    menu_button(
-                                        container(icon(0xe5d2).size(20.0))
-                                            .center(iced::Length::Fill),
-                                        move || {
-                                            container(
-                                                column![]
-                                                    .width(150.0)
-                                                    .spacing(5.0)
-                                                    .push(menu_item(0xe3c9, "Rename").on_press(
-                                                        HomeMessage::BeginRenameCollection(id),
-                                                    ))
-                                                    .push(menu_item(0xe872, "Delete").on_press(
-                                                        HomeMessage::BeginDeleteCollection(id),
-                                                    )),
-                                            )
-                                            .padding(5.0)
-                                            .style(|theme: &iced::Theme| container::Style {
-                                                background: Some(iced::Background::Color(
-                                                    theme.extended_palette().background.strong.text,
+                            .push(space::horizontal())
+                            .push((!matches!(action, Action::DeleteCollection(_))).then(|| {
+                                menu_button(
+                                    container(icon(0xe5d2).size(20.0)).center(iced::Length::Fill),
+                                    opaque(
+                                        container(
+                                            column![]
+                                                .width(150.0)
+                                                .spacing(5.0)
+                                                .push(menu_item(0xe3c9, "Rename").on_press(
+                                                    HomeMessage::BeginRenameCollection(id),
+                                                ))
+                                                .push(menu_item(0xe872, "Delete").on_press(
+                                                    HomeMessage::BeginDeleteCollection(id),
                                                 )),
-                                                border: iced::Border {
-                                                    color: theme
-                                                        .extended_palette()
-                                                        .background
-                                                        .weak
-                                                        .color,
-                                                    width: 1.0,
-                                                    radius: iced::border::radius(10.0),
-                                                },
-                                                shadow: iced::Shadow {
-                                                    color: iced::Color::BLACK.scale_alpha(1.2),
-                                                    offset: iced::Vector::new(0.0, 3.0),
-                                                    blur_radius: 20.0,
-                                                },
-                                                ..Default::default()
-                                            })
-                                            .into()
-                                        },
-                                    )
-                                    .padding(0.0)
-                                    .width(32.0)
-                                    .height(32.0)
-                                    .style(themed_button)
-                                },
-                            )),
+                                        )
+                                        .padding(5.0)
+                                        .style(themed_menu),
+                                    ),
+                                )
+                                .padding(0.0)
+                                .width(32.0)
+                                .height(32.0)
+                                .style(themed_button)
+                            })),
                     )
                     .into(),
                 }
@@ -152,7 +127,7 @@ pub fn sidebar<'a>(
                 )
                 .on_press(HomeMessage::NewCollection),
             )
-            .push(vertical_space())
+            .push(space::vertical())
             .push(
                 container(
                     text(format!("Jangal v{}", env!("CARGO_PKG_VERSION")))
@@ -174,7 +149,7 @@ pub fn sidebar<'a>(
                     .push(
                         menu_button(
                             container(icon(0xe5d2).size(20.0)).center_y(iced::Length::Fill),
-                            move || {
+                            opaque(
                                 container(
                                     column![]
                                         .width(200.0)
@@ -193,24 +168,8 @@ pub fn sidebar<'a>(
                                         )),
                                 )
                                 .padding(5.0)
-                                .style(|theme: &iced::Theme| container::Style {
-                                    background: Some(iced::Background::Color(
-                                        theme.extended_palette().background.strong.text,
-                                    )),
-                                    border: iced::Border {
-                                        color: theme.extended_palette().background.weak.color,
-                                        width: 1.0,
-                                        radius: iced::border::radius(10.0),
-                                    },
-                                    shadow: iced::Shadow {
-                                        color: iced::Color::BLACK.scale_alpha(1.2),
-                                        offset: iced::Vector::new(0.0, 3.0),
-                                        blur_radius: 20.0,
-                                    },
-                                    ..Default::default()
-                                })
-                                .into()
-                            },
+                                .style(themed_menu),
+                            ),
                         )
                         .height(40.0)
                         .style(themed_button),

@@ -76,8 +76,8 @@ impl App {
                 let (screen, task) = screen::Home::new();
                 self.screen = AppScreen::Home(screen);
                 iced::Task::batch([
-                    iced::window::get_latest()
-                        .and_then(|id| iced::window::change_mode(id, iced::window::Mode::Windowed)),
+                    iced::window::latest()
+                        .and_then(|id| iced::window::set_mode(id, iced::window::Mode::Windowed)),
                     task.map(Message::Home),
                 ])
             }

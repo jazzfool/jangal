@@ -7,13 +7,12 @@ use super::Screen;
 use crate::{
     library,
     ui::{
-        find_focused_maybe, icon, menu_button, open_path, themed_button, themed_scrollable,
-        AppState, Tab, HEADER_FONT, ICON_FONT,
+        AppState, HEADER_FONT, ICON_FONT, Tab, find_focused_maybe, icon, menu_button, open_path,
+        themed_button, themed_menu, themed_scrollable,
     },
 };
 use iced::widget::{
-    button, center, column, container, horizontal_rule, image, row, rule, scrollable, stack, text,
-    vertical_rule,
+    button, center, column, container, image, opaque, row, rule, scrollable, space, stack, text,
 };
 use itertools::Itertools;
 use std::{
@@ -223,6 +222,14 @@ impl Screen for Home {
                 }
                 self.sidebar_action = sidebar::Action::None;
 
+                state.tab_stack.retain(|tab| match tab {
+                    Tab::Collection(cid) if *cid == id => false,
+                    _ => true,
+                });
+                if state.tab_stack.is_empty() {
+                    state.tab_stack.push_back(Tab::Home);
+                }
+
                 state.library.remove_collection(id);
                 iced::Task::none()
             }
@@ -273,7 +280,7 @@ impl Screen for Home {
 
         row![]
             .push(sidebar::sidebar(state.library_status, state.library.iter_collections(), self.sidebar_action.clone()))
-            .push(vertical_rule(1.0).style(|theme| rule::Style {
+            .push(rule::vertical(1.0).style(|theme| rule::Style {
                 color: iced::Color::from_rgb8(40, 40, 40),
                 ..<iced::Theme as rule::Catalog>::default()(theme)
             }))
@@ -281,6 +288,7 @@ impl Screen for Home {
                 stack![]
                     .width(iced::Length::Fill)
                     .height(iced::Length::Fill)
+                    .clip(true)
                     .push(
                         container(
                             scrollable(
@@ -294,7 +302,7 @@ impl Screen for Home {
                                                 .spacing(30)
                                                 .align_y(iced::alignment::Vertical::Center)
                                                 .push(text("Keep Watching").font(HEADER_FONT).size(24.0))
-                                                .push(horizontal_rule(1.0).style(|theme| rule::Style {
+                                                .push(rule::horizontal(1.0).style(|theme| rule::Style {
                                                     color: iced::Color::from_rgb8(40, 40, 40),
                                                     ..<iced::Theme as rule::Catalog>::default()(theme)
                                                 }))
@@ -322,7 +330,7 @@ impl Screen for Home {
                                                 .spacing(30)
                                                 .align_y(iced::alignment::Vertical::Center)
                                                 .push(text("Recently Added").font(HEADER_FONT).size(24.0))
-                                                .push(horizontal_rule(1.0).style(|theme| rule::Style {
+                                                .push(rule::horizontal(1.0).style(|theme| rule::Style {
                                                     color: iced::Color::from_rgb8(40, 40, 40),
                                                     ..<iced::Theme as rule::Catalog>::default()(theme)
                                                 }))
@@ -388,18 +396,21 @@ impl Screen for Home {
                                             .unwrap(),
                                         &state.library,
                                     ),
-                                    Tab::Collection(name) => cards::card_grid(
-                                        search,
-                                        state.library
-                                            .collection_iter(&name)
-                                            .unwrap()
-                                            .filter(|(id, _)| self.filter.filter(**id, &state.library)),
-                                        &state.library,
-                                        |a, b, library| {
-                                            sort_by(a, b, library, self.sort, self.sort_dir)
-                                        },
-                                        None,
-                                    ),
+                                    Tab::Collection(name) => {
+                                        if let Some(iter) = state.library.collection_iter(&name) {
+                                            cards::card_grid(
+                                                search,
+                                                iter.filter(|(id, _)| self.filter.filter(**id, &state.library)),
+                                                &state.library,
+                                                |a, b, library| {
+                                                    sort_by(a, b, library, self.sort, self.sort_dir)
+                                                },
+                                                None,
+                                            )
+                                        } else {
+                                            space().into()
+                                        }
+                                    },
                                 })
                                 .height(iced::Length::Shrink)
                                 .align_y(iced::Alignment::Start)
@@ -429,7 +440,7 @@ impl Screen for Home {
                                 self.sort_dir,
                                 &state.library,
                             ))
-                            .push(horizontal_rule(1.0).style(|theme| rule::Style {
+                            .push(rule::horizontal(1.0).style(|theme| rule::Style {
                                 color: iced::Color::from_rgb8(40, 40, 40),
                                 ..<iced::Theme as rule::Catalog>::default()(theme)
                             })),
@@ -498,6 +509,7 @@ fn poster_image<'a>(poster: Option<&Path>) -> iced::Element<'a, HomeMessage> {
     })
     .width(150.0)
     .height(225.0)
+    .padding(1.0)
     .clip(true)
     .style(move |_| container::Style {
         background: poster
@@ -619,14 +631,14 @@ fn media_menu<'a, 'b>(
 
     menu_button(
         container(icon(0xe5d2).size(20.0)).center(iced::Length::Fill),
-        move || {
+        opaque(
             container(
                 column![]
-                    .push_maybe(path.clone().map(|path| {
+                    .push(path.clone().map(|path| {
                         menu_item(0xe89e, "Open file directory")
                             .on_press(HomeMessage::OpenDirectory(path))
                     }))
-                    .push_maybe(
+                    .push(
                         matches!(
                             watched,
                             library::Watched::Partial { .. } | library::Watched::Yes
@@ -636,7 +648,7 @@ fn media_menu<'a, 'b>(
                                 .on_press(HomeMessage::MarkUnwatched(id))
                         }),
                     )
-                    .push_maybe(
+                    .push(
                         matches!(
                             watched,
                             library::Watched::No | library::Watched::Partial { .. }
@@ -649,24 +661,8 @@ fn media_menu<'a, 'b>(
                     .spacing(5.0),
             )
             .padding(5.0)
-            .style(|theme: &iced::Theme| container::Style {
-                background: Some(iced::Background::Color(
-                    theme.extended_palette().background.strong.text,
-                )),
-                border: iced::Border {
-                    color: theme.extended_palette().background.weak.color,
-                    width: 1.0,
-                    radius: iced::border::radius(10.0),
-                },
-                shadow: iced::Shadow {
-                    color: iced::Color::BLACK.scale_alpha(1.2),
-                    offset: iced::Vector::new(0.0, 3.0),
-                    blur_radius: 20.0,
-                },
-                ..Default::default()
-            })
-            .into()
-        },
+            .style(themed_menu),
+        ),
     )
     .padding(0.0)
     .width(30.0)
@@ -692,7 +688,7 @@ fn collection_menu<'a, 'b>(
 
     menu_button(
         container(icon(0xe02e).size(20.0)).center(iced::Length::Fill),
-        move || {
+        opaque(
             container(
                 column![]
                     .width(200.0)
@@ -711,24 +707,8 @@ fn collection_menu<'a, 'b>(
                     ),
             )
             .padding(5.0)
-            .style(|theme: &iced::Theme| container::Style {
-                background: Some(iced::Background::Color(
-                    theme.extended_palette().background.strong.text,
-                )),
-                border: iced::Border {
-                    color: theme.extended_palette().background.weak.color,
-                    width: 1.0,
-                    radius: iced::border::radius(10.0),
-                },
-                shadow: iced::Shadow {
-                    color: iced::Color::BLACK.scale_alpha(1.2),
-                    offset: iced::Vector::new(0.0, 3.0),
-                    blur_radius: 20.0,
-                },
-                ..Default::default()
-            })
-            .into()
-        },
+            .style(themed_menu),
+        ),
     )
     .auto_close(false)
     .padding(0.0)

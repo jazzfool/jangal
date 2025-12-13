@@ -1,8 +1,8 @@
 use super::{
-    collection_menu, media_menu, poster_image, search_maybe, watched_icon, HomeMessage, Tab,
+    HomeMessage, Tab, collection_menu, media_menu, poster_image, search_maybe, watched_icon,
 };
 use crate::{library, ui::icon};
-use iced::widget::{column, container, horizontal_space, hover, mouse_area, row, stack, text};
+use iced::widget::{column, container, hover, mouse_area, row, space, stack, text};
 
 pub fn card_grid<'a, 'b>(
     search: Option<&str>,
@@ -72,7 +72,7 @@ fn media_card<'a>(
                             library::calculate_watched(id, library).unwrap(),
                             true,
                         ))
-                        .push(horizontal_space())
+                        .push(space::horizontal())
                         .push(collection_menu(id, library))
                         .push(media_menu(id, library)),
                 )
@@ -88,7 +88,7 @@ fn media_card<'a>(
                     ..Default::default()
                 }),
             )
-            .push_maybe(media.video().map(|_| {
+            .push(media.video().map(|_| {
                 icon(0xe037)
                     .size(36.0)
                     .width(iced::Length::Fill)

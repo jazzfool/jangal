@@ -2,14 +2,11 @@ use super::{Filter, HomeMessage, Sort, SortDirection};
 use crate::{
     library,
     ui::{
-        icon, menu_button, rich_checkbox, themed_button, themed_text_input, Tab, HEADER_FONT,
-        ICON_FONT,
+        HEADER_FONT, ICON_FONT, Tab, icon, menu_button, rich_checkbox, themed_button, themed_menu,
+        themed_text_input,
     },
 };
-use iced::widget::{
-    button, column, container, horizontal_rule, horizontal_space, pick_list, row, rule, text,
-    text_input,
-};
+use iced::widget::{button, column, container, opaque, row, rule, space, text, text_input};
 
 pub fn top_bar<'a>(
     search: &str,
@@ -74,7 +71,7 @@ pub fn top_bar<'a>(
                         .size(28.0)
                         .color(iced::Color::from_rgba8(210, 210, 210, 1.0)),
                     )
-                    .push(horizontal_space())
+                    .push(space::horizontal())
                     .push(
                         text_input("Search", search)
                             .on_input(HomeMessage::Search)
@@ -90,13 +87,13 @@ pub fn top_bar<'a>(
                             .style(themed_text_input),
                     ),
             )
-            .push_maybe(show_filters.then(|| {
-                horizontal_rule(1.0).style(|theme| rule::Style {
+            .push(show_filters.then(|| {
+                rule::horizontal(1.0).style(|theme| rule::Style {
                     color: iced::Color::from_rgb8(40, 40, 40),
                     ..<iced::Theme as rule::Catalog>::default()(theme)
                 })
             }))
-            .push_maybe(show_filters.then(|| {
+            .push(show_filters.then(|| {
                 row![]
                     .height(iced::Length::Shrink)
                     .padding(10.0)
@@ -128,14 +125,14 @@ pub fn top_bar<'a>(
                         filter.not_watched,
                         HomeMessage::ToggleFilterNotWatched,
                     ))
-                    .push(horizontal_space())
+                    .push(space::horizontal())
                     .push(
                         menu_button(
                             row![]
                                 .spacing(5.0)
                                 .push(icon(0xe164))
                                 .push(text(sort.to_string())),
-                            || {
+                            opaque(
                                 container(
                                     column![].width(150.0).spacing(5.0).extend(
                                         [
@@ -154,24 +151,8 @@ pub fn top_bar<'a>(
                                     ),
                                 )
                                 .padding(5.0)
-                                .style(|theme: &iced::Theme| container::Style {
-                                    background: Some(iced::Background::Color(
-                                        theme.extended_palette().background.strong.text,
-                                    )),
-                                    border: iced::Border {
-                                        color: theme.extended_palette().background.weak.color,
-                                        width: 1.0,
-                                        radius: iced::border::radius(10.0),
-                                    },
-                                    shadow: iced::Shadow {
-                                        color: iced::Color::BLACK.scale_alpha(1.2),
-                                        offset: iced::Vector::new(0.0, 3.0),
-                                        blur_radius: 20.0,
-                                    },
-                                    ..Default::default()
-                                })
-                                .into()
-                            },
+                                .style(themed_menu),
+                            ),
                         )
                         .location(menu_button::Location::BottomLeft)
                         .style(themed_button),
@@ -195,7 +176,7 @@ pub fn top_bar<'a>(
     .style(|theme: &iced::Theme| container::Style {
         background: Some(iced::Background::Color(theme.palette().background)),
         shadow: iced::Shadow {
-            color: iced::Color::BLACK.scale_alpha(1.5),
+            color: iced::Color::BLACK.scale_alpha(0.8),
             offset: iced::Vector::new(0.0, 1.0),
             blur_radius: 10.0,
         },

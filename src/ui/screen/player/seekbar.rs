@@ -1,7 +1,7 @@
 use crate::ui::MONO_FONT;
 use iced::{
     advanced::{self, image, layout, text, widget::tree},
-    event, keyboard, mouse, touch,
+    keyboard, mouse, touch,
 };
 use std::{marker::PhantomData, ops::RangeInclusive, time::Duration};
 
@@ -106,7 +106,7 @@ where
     }
 
     fn layout(
-        &self,
+        &mut self,
         _tree: &mut tree::Tree,
         _renderer: &Renderer,
         limits: &layout::Limits,
@@ -114,17 +114,17 @@ where
         layout::atomic(limits, self.width, self.height)
     }
 
-    fn on_event(
+    fn update(
         &mut self,
         tree: &mut tree::Tree,
-        event: iced::Event,
+        event: &iced::Event,
         layout: layout::Layout<'_>,
         cursor: mouse::Cursor,
         _renderer: &Renderer,
         _clipboard: &mut dyn advanced::Clipboard,
         shell: &mut advanced::Shell<'_, Message>,
         _viewport: &iced::Rectangle,
-    ) -> event::Status {
+    ) {
         let state = tree.state.downcast_mut::<State>();
 
         let is_dragging = state.is_dragging;
@@ -186,8 +186,7 @@ where
                 if let Some(cursor_position) = cursor.position_over(layout.bounds()) {
                     let _ = change(locate(cursor_position));
                     state.is_dragging = true;
-
-                    return event::Status::Captured;
+                    shell.capture_event();
                 }
             }
             iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
@@ -198,8 +197,7 @@ where
                         shell.publish(on_release);
                     }
                     state.is_dragging = false;
-
-                    return event::Status::Captured;
+                    shell.capture_event();
                 }
             }
             iced::Event::Mouse(mouse::Event::CursorMoved { .. })
@@ -213,8 +211,7 @@ where
 
                 if is_dragging {
                     let _ = cursor.position().map(locate).map(change);
-
-                    return event::Status::Captured;
+                    shell.capture_event();
                 }
             }
             iced::Event::Mouse(mouse::Event::WheelScrolled { delta })
@@ -226,13 +223,12 @@ where
                         mouse::ScrollDelta::Pixels { x: _, y } => y,
                     };
 
-                    if delta < 0.0 {
+                    if *delta < 0.0 {
                         change(decrement(current_value));
                     } else {
                         change(increment(current_value));
                     }
-
-                    return event::Status::Captured;
+                    shell.capture_event();
                 }
             }
             iced::Event::Keyboard(keyboard::Event::KeyPressed { key, .. }) => {
@@ -246,17 +242,14 @@ where
                         }
                         _ => (),
                     }
-
-                    return event::Status::Captured;
+                    shell.capture_event();
                 }
             }
             iced::Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) => {
-                state.keyboard_modifiers = modifiers;
+                state.keyboard_modifiers = *modifiers;
             }
             _ => {}
         }
-
-        event::Status::Ignored
     }
 
     fn draw(
@@ -369,6 +362,7 @@ where
         tree: &'b mut tree::Tree,
         layout: layout::Layout<'_>,
         renderer: &Renderer,
+        _viewport: &iced::Rectangle,
         translation: iced::Vector,
     ) -> Option<advanced::overlay::Element<'b, Message, Theme, Renderer>> {
         let state = tree.state.downcast_ref::<State>();
@@ -382,7 +376,7 @@ where
         let image_size = self
             .thumbnails
             .first()
-            .map(|img| renderer.measure_image(img))
+            .and_then(|img| renderer.measure_image(img))
             .unwrap_or_default();
         let image_index = (cursor_percent * self.thumbnails.len() as Value) as usize;
         let image_index = image_index.min(self.thumbnails.len().max(1) - 1);
@@ -480,10 +474,15 @@ where
                     offset: iced::Vector::new(0.0, 1.0),
                     blur_radius: 20.0,
                 },
+                snap: false,
             },
             iced::Background::Color(iced::Color::WHITE.scale_alpha(0.5)),
         );
-        renderer.draw_image(image::Image::new(self.image.clone()), layout.bounds());
+        renderer.draw_image(
+            image::Image::new(self.image.clone()),
+            layout.bounds(),
+            layout.bounds(),
+        );
     }
 }
 
@@ -522,6 +521,7 @@ where
                 bounds: layout.bounds(),
                 border: iced::Border::default().rounded(3.0),
                 shadow: Default::default(),
+                snap: false,
             },
             iced::Background::Color(iced::Color::BLACK.scale_alpha(0.9)),
         );
@@ -533,8 +533,8 @@ where
                 size: 13.into(),
                 line_height: Default::default(),
                 font: MONO_FONT,
-                horizontal_alignment: iced::Alignment::Center.into(),
-                vertical_alignment: iced::Alignment::Center.into(),
+                align_x: iced::Alignment::Center.into(),
+                align_y: iced::Alignment::Center.into(),
                 shaping: text::Shaping::Basic,
                 wrapping: text::Wrapping::None,
             },

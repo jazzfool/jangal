@@ -21,19 +21,19 @@ fn main() -> iced::Result {
     ));
     */
 
-    iced::application("Jangal", App::update, App::view)
-        .theme(|_| {
-            iced::Theme::custom(
-                "Jangal".into(),
-                iced::theme::Palette {
-                    background: color!(0x111111),
-                    text: color!(0xf0f0f0),
-                    primary: color!(0x007aff),
-                    success: color!(0x50cc4e),
-                    danger: color!(0xcc5d4e),
-                },
-            )
-        })
+    iced::application(App::new, App::update, App::view)
+        .title("Jangal")
+        .theme(iced::Theme::custom(
+            String::from("Jangal"),
+            iced::theme::Palette {
+                background: color!(0x111111),
+                text: color!(0xf0f0f0),
+                primary: color!(0x007aff),
+                success: color!(0x50cc4e),
+                danger: color!(0xcc5d4e),
+                warning: color!(0xdbb323),
+            },
+        ))
         .settings(iced::Settings {
             fonts: vec![
                 include_bytes!("ui/resources/WorkSans-Medium.ttf").into(),
@@ -55,5 +55,5 @@ fn main() -> iced::Result {
             ..Default::default()
         })
         .subscription(App::subscription)
-        .run_with(App::new)
+        .run()
 }

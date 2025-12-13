@@ -6,7 +6,7 @@ use crate::{
     library,
     ui::{icon, themed_button, HEADER_FONT},
 };
-use iced::widget::{button, column, container, horizontal_space, hover, row, text};
+use iced::widget::{button, column, container, hover, row, space, text};
 use itertools::Itertools;
 use std::path::PathBuf;
 
@@ -81,7 +81,7 @@ pub fn season_panel<'a>(
                                                 .line_height(1.5),
                                         ),
                                 )
-                                .push(horizontal_space())
+                                .push(space::horizontal())
                                 .push(media_menu(id, library)),
                         )
                         .push(
@@ -151,7 +151,7 @@ fn episode_entry<'a>(
                         }),
                 )
                 .push(text(episode.metadata.title.clone()))
-                .push(horizontal_space())
+                .push(space::horizontal())
                 .push(container(watched_icon(episode.video.watched, false)).style(
                     |theme: &iced::Theme| container::Style {
                         text_color: Some(theme.extended_palette().background.strong.color),
