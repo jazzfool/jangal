@@ -13,17 +13,19 @@ use iced::{
     animation::Easing,
     color,
     mouse::Interaction,
+    theme::palette::mix,
     widget::{
         button, center, column, container, image, mouse_area, opaque, row, scrollable, slider,
-        space, stack, text,
+        space, span, stack, text,
     },
 };
 use iced_video_player::{Position, Video, VideoPlayer};
+use regex::Regex;
 use rfd::AsyncFileDialog;
 use std::{
     num::NonZeroU8,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, LazyLock},
     time::{Duration, Instant},
 };
 
@@ -41,6 +43,99 @@ fn load_video(path: &Path) -> Video {
     let mut video = Video::new(&url::Url::from_file_path(path).unwrap()).unwrap();
     video.set_paused(true);
     video
+}
+
+fn render_subtitles<'a>(
+    subtitle: &'a str,
+    size: f32,
+    color: iced::Color,
+) -> iced::Element<'a, PlayerMessage> {
+    static RE_TAG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<(.+?)>").unwrap());
+
+    let mut spans: Vec<iced::widget::text::Span<'_, PlayerMessage>> = vec![span("")];
+
+    let mut italic = false;
+    let mut bold = false;
+    let mut underline = false;
+    let mut parse = |tok: &str, tag: bool| {
+        let push = match (tok, tag) {
+            ("<i>", true) => {
+                italic = true;
+                true
+            }
+            ("</i>", true) => {
+                italic = false;
+                true
+            }
+            ("<b>", true) => {
+                bold = true;
+                true
+            }
+            ("</b>", true) => {
+                bold = false;
+                true
+            }
+            ("<u>", true) => {
+                underline = true;
+                true
+            }
+            ("</u>", true) => {
+                underline = false;
+                true
+            }
+            (s, false) => {
+                let last_span = spans.last_mut().unwrap();
+                let mut text = last_span.text.to_string();
+                text.push_str(html_escape::decode_html_entities(s).as_ref());
+                last_span.text = text.into();
+                false
+            }
+            _ => false,
+        };
+
+        if push {
+            let bold_color = mix(color, iced::Color::WHITE, 0.3);
+            let font = iced::Font {
+                style: if italic {
+                    iced::font::Style::Italic
+                } else {
+                    iced::font::Style::Normal
+                },
+                ..SUBTITLE_FONT
+            };
+
+            let spans_len = spans.len();
+            let last_span = spans.last_mut().unwrap();
+            if last_span.text.len() == 0 || spans_len >= 16 {
+                last_span.font = Some(font);
+                last_span.underline = underline;
+                last_span.color = if bold { Some(bold_color) } else { None };
+            } else {
+                spans.push(
+                    span("")
+                        .font(font)
+                        .underline(underline)
+                        .color_maybe(if bold { Some(bold_color) } else { None }),
+                );
+            }
+        }
+    };
+
+    let mut last = 0;
+    for m in RE_TAG.find_iter(&subtitle) {
+        if last != m.start() {
+            parse(&subtitle[last..m.start()], false);
+        }
+        parse(m.as_str(), true);
+        last = m.end();
+    }
+    parse(&subtitle[last..], false);
+
+    iced::widget::rich_text(spans)
+        .font(SUBTITLE_FONT)
+        .size(size)
+        .color(color)
+        .into()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -222,8 +317,7 @@ impl Screen for Player {
                 iced::Task::none()
             }
             PlayerMessage::NewSubtitle(subtitle) => {
-                self.subtitle =
-                    subtitle.map(|s| html_escape::decode_html_entities(&s).into_owned());
+                self.subtitle = subtitle;
                 iced::Task::none()
             }
             PlayerMessage::Seek(secs) => {
@@ -541,12 +635,11 @@ impl Screen for Player {
                         .and(self.subtitle.as_ref())
                         .map(|subtitle| {
                             container(
-                                container(
-                                    text(subtitle.clone())
-                                        .font(SUBTITLE_FONT)
-                                        .size(state.settings.subtitle_size)
-                                        .color(iced::Color::from_rgb8(231, 211, 73)),
-                                )
+                                container(render_subtitles(
+                                    subtitle.as_str(),
+                                    state.settings.subtitle_size,
+                                    iced::Color::from_rgb8(231, 211, 73),
+                                ))
                                 .padding(iced::Padding::new(5.0).left(10.0).right(10.0))
                                 .style(|_| container::Style {
                                     background: Some(iced::Background::Color(
