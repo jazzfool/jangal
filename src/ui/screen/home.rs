@@ -1,4 +1,4 @@
-mod cards;
+pub mod cards;
 mod seasons;
 mod sidebar;
 mod top_bar;
@@ -11,14 +11,18 @@ use crate::{
         themed_button, themed_menu, themed_scrollable,
     },
 };
-use iced::widget::{
-    button, center, column, container, image, opaque, row, rule, scrollable, space, stack, text,
+use cards::Card;
+use iced::{
+    color,
+    widget::{
+        button, center, column, container, image, opaque, row, rule, scrollable, space, stack, text,
+    },
 };
 use itertools::Itertools;
 use std::{
     fmt,
-    path::{Path, PathBuf},
-    time::Duration,
+    path::PathBuf,
+    time::{Duration, Instant},
 };
 use top_bar::top_bar;
 
@@ -118,7 +122,12 @@ impl Home {
 impl Screen for Home {
     type Message = HomeMessage;
 
-    fn update(&mut self, message: HomeMessage, state: &mut AppState) -> iced::Task<HomeMessage> {
+    fn update(
+        &mut self,
+        message: HomeMessage,
+        state: &mut AppState,
+        now: Instant,
+    ) -> iced::Task<HomeMessage> {
         match message {
             HomeMessage::Search(value) => {
                 self.search = value;
@@ -267,11 +276,23 @@ impl Screen for Home {
 
                 iced::Task::none()
             }
+            HomeMessage::CardMouseEnter(id) => {
+                if let Some(card) = state.card_cache.cache.get_mut(&id) {
+                    card.begin_hover(now);
+                }
+                iced::Task::none()
+            }
+            HomeMessage::CardMouseExit(id) => {
+                if let Some(card) = state.card_cache.cache.get_mut(&id) {
+                    card.end_hover(now);
+                }
+                iced::Task::none()
+            }
             _ => iced::Task::none(),
         }
     }
 
-    fn view<'a, 'b>(&'a self, state: &'a AppState) -> iced::Element<'b, HomeMessage>
+    fn view<'a, 'b>(&'a self, state: &'a AppState, now: Instant) -> iced::Element<'b, HomeMessage>
     where
         'a: 'b,
     {
@@ -308,6 +329,7 @@ impl Screen for Home {
                                                 }))
                                         )
                                         .push(cards::card_grid(
+                                            &state.card_cache,
                                             search,
                                             state.library.iter().filter(|(_, media)| {
                                                 media.video().is_some_and(|video| {
@@ -324,6 +346,7 @@ impl Screen for Home {
                                                 )
                                             },
                                             Some(20),
+                                            now,
                                         ))
                                         .push(
                                             row![]
@@ -336,6 +359,7 @@ impl Screen for Home {
                                                 }))
                                         )
                                         .push(cards::card_grid(
+                                            &state.card_cache,
                                             search,
                                             state.library.iter().filter(|(_, media)| {
                                                 media.video().is_some_and(|video| {
@@ -351,9 +375,11 @@ impl Screen for Home {
                                                     .cmp(&a.video().unwrap().added)
                                             },
                                             Some(20),
+                                            now,
                                         ))
                                         .into(),
                                     Tab::Movies | Tab::TvShows => cards::card_grid(
+                                        &state.card_cache,
                                         search,
                                         state.library.iter().filter(|(id, media)| match tab {
                                             Tab::Movies => {
@@ -369,8 +395,10 @@ impl Screen for Home {
                                             sort_by(a, b, library, self.sort, self.sort_dir)
                                         },
                                         None,
+                                        now,
                                     ),
                                     Tab::TvShow(id) => seasons::season_list(
+                                        &state.card_cache,
                                         search,
                                         id,
                                         state
@@ -384,6 +412,7 @@ impl Screen for Home {
                                         &state.library,
                                     ),
                                     Tab::Season(id) => seasons::season_panel(
+                                        &state.card_cache,
                                         search,
                                         id,
                                         state
@@ -399,6 +428,7 @@ impl Screen for Home {
                                     Tab::Collection(name) => {
                                         if let Some(iter) = state.library.collection_iter(&name) {
                                             cards::card_grid(
+                                                &state.card_cache,
                                                 search,
                                                 iter.filter(|(id, _)| self.filter.filter(**id, &state.library)),
                                                 &state.library,
@@ -406,6 +436,7 @@ impl Screen for Home {
                                                     sort_by(a, b, library, self.sort, self.sort_dir)
                                                 },
                                                 None,
+                                                now,
                                             )
                                         } else {
                                             space().into()
@@ -449,7 +480,7 @@ impl Screen for Home {
             .into()
     }
 
-    fn subscription(&self) -> iced::Subscription<HomeMessage> {
+    fn subscription(&self, _now: Instant) -> iced::Subscription<HomeMessage> {
         if let sidebar::Action::RenameCollection { .. } = self.sidebar_action {
             iced::event::listen().map(|_| HomeMessage::CheckCollectionInputFocus)
         } else {
@@ -482,6 +513,8 @@ pub enum HomeMessage {
     SetSort(Sort),
     ToggleSortDirection(SortDirection),
     ToggleMediaCollection(library::MediaId, library::CollectionId),
+    CardMouseEnter(library::MediaId),
+    CardMouseExit(library::MediaId),
 
     NewCollection,
     BeginRenameCollection(library::CollectionId),
@@ -495,11 +528,11 @@ pub enum HomeMessage {
     None,
 }
 
-fn poster_image<'a>(poster: Option<&Path>) -> iced::Element<'a, HomeMessage> {
-    let poster = poster.map(Path::to_path_buf);
+fn poster_image(card: Option<&Card>) -> iced::Element<'_, HomeMessage> {
+    let poster = card.and_then(|card| card.image.as_ref());
 
     container(if let Some(img) = &poster {
-        image(img)
+        image(img.handle())
             .content_fit(iced::ContentFit::Cover)
             .width(iced::Length::Fill)
             .height(iced::Length::Fill)
@@ -529,7 +562,11 @@ fn poster_image<'a>(poster: Option<&Path>) -> iced::Element<'a, HomeMessage> {
     .into()
 }
 
-fn watched_icon<'a>(watched: library::Watched, icon_first: bool) -> iced::Element<'a, HomeMessage> {
+fn watched_icon<'a>(
+    watched: library::Watched,
+    icon_first: bool,
+    alpha: f32,
+) -> iced::Element<'a, HomeMessage> {
     let (color, codepoint) = match watched {
         library::Watched::No => (iced::Color::from_rgb8(200, 200, 200), 0xe8f5),
         library::Watched::Partial { percent, .. } => (iced::Color::from_rgb8(95, 143, 245), {
@@ -549,6 +586,7 @@ fn watched_icon<'a>(watched: library::Watched, icon_first: bool) -> iced::Elemen
         }),
         library::Watched::Yes => (iced::Color::from_rgb8(68, 161, 50), 0xe8f4),
     };
+    let color = color.scale_alpha(alpha);
     let icon = icon(codepoint).color(color);
 
     let label = match watched {
@@ -622,6 +660,7 @@ fn search_maybe<T>(
 fn media_menu<'a, 'b>(
     id: library::MediaId,
     library: &'b library::Library,
+    alpha: f32,
 ) -> iced::Element<'a, HomeMessage> {
     let media = library.get(id).unwrap();
     let path = media
@@ -630,7 +669,12 @@ fn media_menu<'a, 'b>(
     let watched = library::calculate_watched(id, library).unwrap_or(library::Watched::No);
 
     menu_button(
-        container(icon(0xe5d2).size(20.0)).center(iced::Length::Fill),
+        container(
+            icon(0xe5d2)
+                .size(20.0)
+                .color(color!(0xf0f0f0).scale_alpha(alpha)),
+        )
+        .center(iced::Length::Fill),
         opaque(
             container(
                 column![]
@@ -674,6 +718,7 @@ fn media_menu<'a, 'b>(
 fn collection_menu<'a, 'b>(
     id: library::MediaId,
     library: &'b library::Library,
+    alpha: f32,
 ) -> iced::Element<'a, HomeMessage> {
     let collections: Vec<_> = library
         .iter_collections()
@@ -687,7 +732,12 @@ fn collection_menu<'a, 'b>(
         .collect();
 
     menu_button(
-        container(icon(0xe02e).size(20.0)).center(iced::Length::Fill),
+        container(
+            icon(0xe02e)
+                .size(20.0)
+                .color(color!(0xf0f0f0).scale_alpha(alpha)),
+        )
+        .center(iced::Length::Fill),
         opaque(
             container(
                 column![]

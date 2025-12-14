@@ -1,6 +1,8 @@
-mod home;
+pub mod home;
 mod player;
 mod settings;
+
+use std::time::Instant;
 
 pub use home::*;
 pub use player::*;
@@ -11,13 +13,21 @@ use super::AppState;
 pub trait Screen {
     type Message;
 
-    fn update(&mut self, message: Self::Message, state: &mut AppState)
-        -> iced::Task<Self::Message>;
-    fn view<'a, 'b>(&'a self, state: &'a AppState) -> iced::Element<'b, Self::Message>
+    fn update(
+        &mut self,
+        message: Self::Message,
+        state: &mut AppState,
+        now: Instant,
+    ) -> iced::Task<Self::Message>;
+    fn view<'a, 'b>(
+        &'a self,
+        state: &'a AppState,
+        now: Instant,
+    ) -> iced::Element<'b, Self::Message>
     where
         'a: 'b;
 
-    fn subscription(&self) -> iced::Subscription<Self::Message> {
+    fn subscription(&self, _now: Instant) -> iced::Subscription<Self::Message> {
         iced::Subscription::none()
     }
 }

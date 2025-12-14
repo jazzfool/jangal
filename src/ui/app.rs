@@ -1,11 +1,14 @@
+use iced::widget::image;
+
 use super::{
-    screen::{self, Screen},
     AppState, LibraryStatus, Tab,
+    screen::{self, Screen, cards},
 };
 use crate::{library, settings::UserSettings};
-use std::collections::VecDeque;
+use std::{collections::VecDeque, time::Instant};
 
 pub struct App {
+    now: Instant,
     screen: AppScreen,
     state: AppState,
 }
@@ -21,39 +24,46 @@ impl App {
         let library = library::Library::load(&storage_path);
         let settings = UserSettings::load(&storage_path);
 
-        let (screen, task) = screen::Home::new();
+        let (card_cache, cache_task) = cards::Cache::build(&library);
+
+        let (screen, screen_task) = screen::Home::new();
 
         (
             App {
+                now: Instant::now(),
                 screen: AppScreen::Home(screen),
                 state: AppState {
                     storage_path,
                     library,
                     settings,
 
+                    card_cache,
                     library_status: LibraryStatus::Idle,
                     tab_stack: VecDeque::from([Tab::Home]),
                 },
             },
-            task.map(Message::Home),
+            iced::Task::batch([cache_task, screen_task.map(Message::Home)]),
         )
     }
 
     pub fn subscription(&self) -> iced::Subscription<Message> {
         iced::Subscription::batch([
             match &self.screen {
-                AppScreen::Home(screen) => screen.subscription().map(Message::Home),
-                AppScreen::Player(screen) => screen.subscription().map(Message::Player),
-                AppScreen::Settings(screen) => screen.subscription().map(Message::Settings),
+                AppScreen::Home(screen) => screen.subscription(self.now).map(Message::Home),
+                AppScreen::Player(screen) => screen.subscription(self.now).map(Message::Player),
+                AppScreen::Settings(screen) => screen.subscription(self.now).map(Message::Settings),
             },
             iced::event::listen_with(|event, _, _| match event {
                 iced::Event::Window(iced::window::Event::CloseRequested) => Some(Message::Exit),
                 _ => None,
             }),
+            self.state.card_cache.subscription(self.now),
         ])
     }
 
-    pub fn update(&mut self, message: Message) -> iced::Task<Message> {
+    pub fn update(&mut self, message: Message, now: Instant) -> iced::Task<Message> {
+        self.now = now;
+
         match message {
             Message::Home(screen::HomeMessage::Play(id)) => {
                 let (screen, task) = screen::Player::new(id, &self.state);
@@ -93,14 +103,16 @@ impl App {
                 let AppScreen::Home(screen) = &mut self.screen else {
                     return iced::Task::none();
                 };
-                screen.update(message, &mut self.state).map(Message::Home)
+                screen
+                    .update(message, &mut self.state, self.now)
+                    .map(Message::Home)
             }
             Message::Settings(message) => {
                 let AppScreen::Settings(screen) = &mut self.screen else {
                     return iced::Task::none();
                 };
                 screen
-                    .update(message, &mut self.state)
+                    .update(message, &mut self.state, self.now)
                     .map(Message::Settings)
             }
             Message::Player(message) => {
@@ -108,7 +120,7 @@ impl App {
                     return iced::Task::none();
                 };
                 screen
-                    .update(message, &mut self.state)
+                    .update(message, &mut self.state, self.now)
                     .map(|message| Message::Player(message))
             }
             Message::Purge { scan } => {
@@ -177,12 +189,17 @@ impl App {
                 }
                 self.state.library.purge_collections();
                 self.state.library.save(&self.state.storage_path).unwrap();
-                if scan {
-                    iced::Task::done(Message::ScanDirectories)
-                } else {
-                    self.state.library_status = LibraryStatus::Idle;
-                    iced::Task::none()
-                }
+                let (card_cache, cache_task) = cards::Cache::build(&self.state.library);
+                self.state.card_cache = card_cache;
+                iced::Task::batch([
+                    cache_task,
+                    if scan {
+                        iced::Task::done(Message::ScanDirectories)
+                    } else {
+                        self.state.library_status = LibraryStatus::Idle;
+                        iced::Task::none()
+                    },
+                ])
             }
             Message::ScanDirectoriesComplete(added) => {
                 self.state.library.extend(added);
@@ -191,9 +208,21 @@ impl App {
             }
             Message::ScrapeComplete(result) => {
                 self.state.library_status = LibraryStatus::Idle;
+                let (card_cache, cache_task) = cards::Cache::build(&self.state.library);
+                self.state.card_cache = card_cache;
                 result.insert(&mut self.state.library);
-                iced::Task::perform(self.state.save_library(), |_| ()).discard()
+                iced::Task::batch([
+                    cache_task,
+                    iced::Task::perform(self.state.save_library(), |_| ()).discard(),
+                ])
             }
+            Message::CardImageLoaded(id, image) => {
+                if let Some(image) = image {
+                    self.state.card_cache.load_image(id, image);
+                }
+                iced::Task::none()
+            }
+            Message::Animate => iced::Task::none(),
             Message::Exit => iced::Task::batch([
                 iced::Task::perform(self.state.save_library(), |_| ()),
                 iced::Task::perform(self.state.save_settings(), |_| ()),
@@ -205,9 +234,11 @@ impl App {
 
     pub fn view(&self) -> iced::Element<Message> {
         match &self.screen {
-            AppScreen::Home(screen) => screen.view(&self.state).map(Message::Home),
-            AppScreen::Player(screen) => screen.view(&self.state).map(Message::Player),
-            AppScreen::Settings(screen) => screen.view(&self.state).map(Message::Settings),
+            AppScreen::Home(screen) => screen.view(&self.state, self.now).map(Message::Home),
+            AppScreen::Player(screen) => screen.view(&self.state, self.now).map(Message::Player),
+            AppScreen::Settings(screen) => {
+                screen.view(&self.state, self.now).map(Message::Settings)
+            }
         }
     }
 }
@@ -231,7 +262,9 @@ pub enum Message {
     },
     ScanDirectoriesComplete(Vec<library::Media>),
     ScrapeComplete(library::ScrapeResult),
+    CardImageLoaded(library::MediaId, Option<image::Allocation>),
 
+    Animate,
     Exit,
 }
 

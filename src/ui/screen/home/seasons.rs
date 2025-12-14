@@ -1,16 +1,16 @@
 use super::{
-    media_menu, poster_image, search_episode, search_maybe, search_season, watched_icon,
-    HomeMessage,
+    HomeMessage, cards::Cache, media_menu, poster_image, search_episode, search_maybe,
+    search_season, watched_icon,
 };
 use crate::{
     library,
-    ui::{icon, themed_button, HEADER_FONT},
+    ui::{HEADER_FONT, icon, themed_button},
 };
 use iced::widget::{button, column, container, hover, row, space, text};
 use itertools::Itertools;
-use std::path::PathBuf;
 
 pub fn season_list<'a>(
+    cache: &'a Cache,
     search: Option<&str>,
     id: library::MediaId,
     _series: &library::Series,
@@ -31,68 +31,66 @@ pub fn season_list<'a>(
                 }),
                 |(_, a), (_, b)| a.metadata.season.cmp(&b.metadata.season),
             )
-            .map(|(id, season)| season_panel(search, *id, season, library)),
+            .map(|(id, season)| season_panel(cache, search, *id, season, library)),
         )
         .into()
 }
 
 pub fn season_panel<'a>(
+    cache: &'a Cache,
     search: Option<&str>,
     id: library::MediaId,
     season: &library::Season,
     library: &library::Library,
 ) -> iced::Element<'a, HomeMessage> {
+    let card = cache.cache.get(&id);
+
     column![]
         .width(iced::Length::Fill)
         .height(iced::Length::Shrink)
         .spacing(10.0)
         .max_width(800.0)
         .push(
-            row![]
-                .spacing(20.0)
-                .push(poster_image(
-                    season.metadata.poster.as_ref().map(PathBuf::as_path),
-                ))
-                .push(
-                    column![]
-                        .push(
-                            row![]
-                                .padding(iced::Padding::ZERO.right(10.0))
-                                .push(
-                                    column![]
-                                        .push(
-                                            text(format!("S{:02}", season.metadata.season))
-                                                .size(14.0)
-                                                .style(|theme: &iced::Theme| text::Style {
-                                                    color: Some(
-                                                        theme
-                                                            .extended_palette()
-                                                            .background
-                                                            .strong
-                                                            .color,
-                                                    ),
-                                                    ..Default::default()
-                                                }),
-                                        )
-                                        .push(
-                                            text(season.metadata.title.clone())
-                                                .size(24.0)
-                                                .font(HEADER_FONT)
-                                                .line_height(1.5),
-                                        ),
-                                )
-                                .push(space::horizontal())
-                                .push(media_menu(id, library)),
-                        )
-                        .push(
-                            text(season.metadata.overview.clone().unwrap_or_default()).style(
-                                |theme: &iced::Theme| text::Style {
-                                    color: Some(theme.palette().text.scale_alpha(0.8)),
-                                    ..Default::default()
-                                },
-                            ),
+            row![].spacing(20.0).push(poster_image(card)).push(
+                column![]
+                    .push(
+                        row![]
+                            .padding(iced::Padding::ZERO.right(10.0))
+                            .push(
+                                column![]
+                                    .push(
+                                        text(format!("S{:02}", season.metadata.season))
+                                            .size(14.0)
+                                            .style(|theme: &iced::Theme| text::Style {
+                                                color: Some(
+                                                    theme
+                                                        .extended_palette()
+                                                        .background
+                                                        .strong
+                                                        .color,
+                                                ),
+                                                ..Default::default()
+                                            }),
+                                    )
+                                    .push(
+                                        text(season.metadata.title.clone())
+                                            .size(24.0)
+                                            .font(HEADER_FONT)
+                                            .line_height(1.5),
+                                    ),
+                            )
+                            .push(space::horizontal())
+                            .push(media_menu(id, library, 1.0)),
+                    )
+                    .push(
+                        text(season.metadata.overview.clone().unwrap_or_default()).style(
+                            |theme: &iced::Theme| text::Style {
+                                color: Some(theme.palette().text.scale_alpha(0.8)),
+                                ..Default::default()
+                            },
                         ),
-                ),
+                    ),
+            ),
         )
         .push(episode_list(search, id, season, library))
         .into()
@@ -152,13 +150,15 @@ fn episode_entry<'a>(
                 )
                 .push(text(episode.metadata.title.clone()))
                 .push(space::horizontal())
-                .push(container(watched_icon(episode.video.watched, false)).style(
-                    |theme: &iced::Theme| container::Style {
-                        text_color: Some(theme.extended_palette().background.strong.color),
-                        ..Default::default()
-                    },
-                ))
-                .push(media_menu(id, library)),
+                .push(
+                    container(watched_icon(episode.video.watched, false, 1.0)).style(
+                        |theme: &iced::Theme| container::Style {
+                            text_color: Some(theme.extended_palette().background.strong.color),
+                            ..Default::default()
+                        },
+                    ),
+                )
+                .push(media_menu(id, library, 1.0)),
         )
         .width(iced::Length::Fill)
         .style(themed_button)

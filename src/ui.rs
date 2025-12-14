@@ -4,7 +4,7 @@ pub mod screen;
 
 pub use menu_button::menu_button;
 
-use crate::{library, settings::UserSettings};
+use crate::{library, settings::UserSettings, ui::screen::home::cards};
 use iced::widget::{button, checkbox, container, row, scrollable, text, text_input};
 use std::{
     collections::VecDeque,
@@ -46,6 +46,7 @@ pub struct AppState {
     pub library: library::Library,
     pub settings: UserSettings,
 
+    pub card_cache: cards::Cache,
     pub library_status: LibraryStatus,
     pub tab_stack: VecDeque<Tab>,
 }
@@ -70,23 +71,6 @@ impl AppState {
     }
 }
 
-#[cfg(target_os = "windows")]
-pub const SANS_FONT: iced::Font = iced::Font {
-    family: iced::font::Family::Name("Segoe UI"),
-    weight: iced::font::Weight::Normal,
-    stretch: iced::font::Stretch::Normal,
-    style: iced::font::Style::Normal,
-};
-
-#[cfg(target_os = "macos")]
-pub const SANS_FONT: iced::Font = iced::Font {
-    family: iced::font::Family::Name("SF Pro"),
-    weight: iced::font::Weight::Normal,
-    stretch: iced::font::Stretch::Normal,
-    style: iced::font::Style::Normal,
-};
-
-#[cfg(target_os = "linux")]
 pub const SANS_FONT: iced::Font = iced::Font {
     family: iced::font::Family::SansSerif,
     weight: iced::font::Weight::Normal,
@@ -225,14 +209,14 @@ pub fn themed_scrollable(_theme: &iced::Theme, status: scrollable::Status) -> sc
     scrollable::Style {
         container: container::Style {
             text_color: None,
-            background: Some(iced::Background::Color(iced::Color::BLACK)),
+            background: Some(iced::Background::Color(greyscale(12))),
             border: Default::default(),
             shadow: iced::Shadow {
                 color: iced::Color::TRANSPARENT,
                 offset: iced::Vector::ZERO,
                 blur_radius: 0.0,
             },
-            snap: false,
+            snap: true,
         },
         vertical_rail: themed_rail(hover_vertical, drag_vertical),
         horizontal_rail: themed_rail(hover_horizontal, drag_horizontal),

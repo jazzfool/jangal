@@ -11,6 +11,7 @@ directories = "5.0.1"
 env_logger = "0.11.5"
 futures = "0.3.30"
 iced = { version = "0.14", features = ["svg", "advanced", "tokio", "wgpu"] }
+iced_graphics = "0.14"
 iced_video_player = { git = "https://github.com/jazzfool/iced_video_player" }
 gstreamer = "0.23"
 itertools = "0.13.0"

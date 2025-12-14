@@ -1,13 +1,13 @@
 use super::Screen;
 use crate::ui::{
-    icon, themed_button, themed_text_input, AppState, HEADER_FONT, MONO_FONT, SUBTITLE_FONT,
+    AppState, HEADER_FONT, MONO_FONT, SUBTITLE_FONT, icon, themed_button, themed_text_input,
 };
 use iced::widget::{
     button, column, container, row, rule, scrollable, slider, space, text, text_input,
 };
 use normpath::PathExt;
 use rfd::AsyncFileDialog;
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Instant};
 
 pub struct Settings {
     dialog_open: bool,
@@ -26,6 +26,7 @@ impl Screen for Settings {
         &mut self,
         message: SettingsMessage,
         state: &mut AppState,
+        _now: Instant,
     ) -> iced::Task<SettingsMessage> {
         match message {
             SettingsMessage::AddDirectory => {
@@ -96,7 +97,11 @@ impl Screen for Settings {
         }
     }
 
-    fn view<'a, 'b>(&'a self, state: &'a AppState) -> iced::Element<'b, SettingsMessage>
+    fn view<'a, 'b>(
+        &'a self,
+        state: &'a AppState,
+        _now: Instant,
+    ) -> iced::Element<'b, SettingsMessage>
     where
         'a: 'b,
     {

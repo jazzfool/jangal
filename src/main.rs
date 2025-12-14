@@ -21,7 +21,7 @@ fn main() -> iced::Result {
     ));
     */
 
-    iced::application(App::new, App::update, App::view)
+    iced::application::timed(App::new, App::update, App::subscription, App::view)
         .title("Jangal")
         .theme(iced::Theme::custom(
             String::from("Jangal"),
@@ -54,6 +54,5 @@ fn main() -> iced::Result {
             exit_on_close_request: false,
             ..Default::default()
         })
-        .subscription(App::subscription)
         .run()
 }

@@ -2954,6 +2954,7 @@ dependencies = [
  "gstreamer",
  "html-escape",
  "iced",
+ "iced_graphics",
  "iced_video_player",
  "itertools 0.13.0",
  "keepawake",

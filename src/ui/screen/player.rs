@@ -9,6 +9,9 @@ use crate::{
 };
 use gstreamer::prelude::{ElementExt, ObjectExt};
 use iced::{
+    Animation,
+    animation::Easing,
+    color,
     mouse::Interaction,
     widget::{
         button, center, column, container, image, mouse_area, opaque, row, scrollable, slider,
@@ -21,7 +24,7 @@ use std::{
     num::NonZeroU8,
     path::{Path, PathBuf},
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 fn keep_awake() -> keepawake::KeepAwake {
@@ -54,6 +57,7 @@ pub struct Player {
     position: f64,
     dragging: bool,
     hide_mouse: bool,
+    overlay_animation: Animation<bool>,
     mouse_moved_at: iced::time::Instant,
     is_fullscreen: bool,
     subtitle_streams: Vec<String>,
@@ -147,6 +151,7 @@ impl Player {
                 position: 0.0,
                 dragging: false,
                 hide_mouse: false,
+                overlay_animation: Animation::new(true).quick().easing(Easing::EaseInOutCubic),
                 mouse_moved_at: iced::time::Instant::now(),
                 is_fullscreen: false,
                 subtitle_streams: vec![],
@@ -169,6 +174,7 @@ impl Screen for Player {
         &mut self,
         message: PlayerMessage,
         state: &mut AppState,
+        now: Instant,
     ) -> iced::Task<PlayerMessage> {
         match message {
             PlayerMessage::LoadVideo {
@@ -257,6 +263,8 @@ impl Screen for Player {
                 };
 
                 video.set_paused(!video.paused());
+                self.overlay_animation
+                    .go_mut(!self.hide_mouse || video.paused(), now);
                 self._keep_awake = (!video.paused()).then(|| keep_awake());
                 iced::Task::none()
             }
@@ -269,7 +277,13 @@ impl Screen for Player {
                 iced::Task::none()
             }
             PlayerMessage::MouseMove => {
+                let Some(video) = self.video.as_mut() else {
+                    return iced::Task::none();
+                };
+
                 self.hide_mouse = false;
+                self.overlay_animation
+                    .go_mut(!self.hide_mouse || video.paused(), now);
                 self.mouse_moved_at = iced::time::Instant::now();
                 iced::Task::future(async {
                     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
@@ -277,7 +291,13 @@ impl Screen for Player {
                 })
             }
             PlayerMessage::HideControls => {
+                let Some(video) = self.video.as_mut() else {
+                    return iced::Task::none();
+                };
+
                 self.hide_mouse = self.mouse_moved_at.elapsed().as_secs_f32() >= 3.0;
+                self.overlay_animation
+                    .go_mut(!self.hide_mouse || video.paused(), now);
                 iced::Task::none()
             }
             PlayerMessage::ToggleFullscreen => {
@@ -460,7 +480,7 @@ impl Screen for Player {
         }
     }
 
-    fn view<'a, 'b>(&'a self, state: &'a AppState) -> iced::Element<'b, PlayerMessage>
+    fn view<'a, 'b>(&'a self, state: &'a AppState, now: Instant) -> iced::Element<'b, PlayerMessage>
     where
         'a: 'b,
     {
@@ -489,6 +509,8 @@ impl Screen for Player {
 
         let mouse_interacting =
             !self.hide_mouse || self.video.as_ref().is_some_and(|video| video.paused());
+
+        let animation = self.overlay_animation.interpolate(0.0, 1.0, now);
 
         mouse_area(
             stack![]
@@ -545,11 +567,17 @@ impl Screen for Player {
                     column![]
                         .width(iced::Length::Fill)
                         .height(iced::Length::Fill)
-                        .push(top_bar(mouse_interacting, title, self.is_fullscreen))
+                        .push(top_bar(
+                            mouse_interacting,
+                            animation,
+                            title,
+                            self.is_fullscreen,
+                        ))
                         .push(space::vertical().height(iced::Length::Fill))
                         .push(self.video.as_ref().map(|video| {
                             bottom_bar(
                                 mouse_interacting,
+                                animation,
                                 self.position,
                                 self.subtitle_streams.clone(),
                                 self.selected_subtitle.clone(),
@@ -570,7 +598,7 @@ impl Screen for Player {
         .into()
     }
 
-    fn subscription(&self) -> iced::Subscription<PlayerMessage> {
+    fn subscription(&self, now: Instant) -> iced::Subscription<PlayerMessage> {
         iced::Subscription::batch([
             iced::time::every(Duration::from_secs(1)).map(|_| PlayerMessage::UpdateWatched),
             iced::time::every(Duration::from_secs(60)).map(|_| PlayerMessage::SaveLibrary),
@@ -604,6 +632,11 @@ impl Screen for Player {
                     None
                 }
             }),
+            if self.overlay_animation.is_animating(now) {
+                iced::window::frames().map(|_| PlayerMessage::NewFrame)
+            } else {
+                iced::Subscription::none()
+            },
         ])
     }
 }
@@ -641,26 +674,36 @@ pub enum PlayerMessage {
     PickSubtitleFile(Option<PathBuf>),
 }
 
-fn top_bar<'a>(show: bool, title: String, is_fullscreen: bool) -> iced::Element<'a, PlayerMessage> {
-    mouse_area(if show {
+fn top_bar<'a>(
+    show: bool,
+    animation: f32,
+    title: String,
+    is_fullscreen: bool,
+) -> iced::Element<'a, PlayerMessage> {
+    mouse_area(if show || animation > 0.001 {
         container(
             row![]
                 .spacing(20.0)
                 .align_y(iced::Alignment::Center)
-                .push(control_button(icon(0xe5c4), PlayerMessage::Back, false))
-                .push(text(title))
+                .push(control_button(
+                    icon(0xe5c4).color(color!(0xf0f0f0).scale_alpha(animation)),
+                    PlayerMessage::Back,
+                    false,
+                ))
+                .push(text(title).color(color!(0xf0f0f0).scale_alpha(animation)))
                 .push(space::horizontal())
                 .push(control_button(
-                    icon(if is_fullscreen { 0xe5d1 } else { 0xe5d0 }),
+                    icon(if is_fullscreen { 0xe5d1 } else { 0xe5d0 })
+                        .color(color!(0xf0f0f0).scale_alpha(animation)),
                     PlayerMessage::ToggleFullscreen,
                     false,
                 )),
         )
-        .style(|_| container::Style {
+        .style(move |_| container::Style {
             background: Some(iced::Background::Gradient(iced::Gradient::Linear(
                 iced::gradient::Linear::new(0.0)
                     .add_stop(0.0, iced::Color::from_rgba8(0, 0, 0, 0.0))
-                    .add_stop(1.0, iced::Color::from_rgba8(0, 0, 0, 0.8)),
+                    .add_stop(1.0, iced::Color::from_rgba8(0, 0, 0, animation * 0.8)),
             ))),
             ..Default::default()
         })
@@ -678,6 +721,7 @@ fn top_bar<'a>(show: bool, title: String, is_fullscreen: bool) -> iced::Element<
 
 fn bottom_bar<'a>(
     show: bool,
+    animation: f32,
     position: f64,
     subtitle_streams: Vec<String>,
     selected_subtitle: SubtitleOption,
@@ -689,6 +733,7 @@ fn bottom_bar<'a>(
         position: f64,
         thumbnails: Vec<image::Handle>,
         video: &Video,
+        animation: f32,
     ) -> iced::Element<'a, PlayerMessage> {
         row![]
             .align_y(iced::Alignment::Center)
@@ -700,7 +745,8 @@ fn bottom_bar<'a>(
                     position as u64 % 3600 / 60,
                     position as u64 % 60
                 ))
-                .width(80.0),
+                .width(80.0)
+                .color(color!(0xf0f0f0).scale_alpha(animation)),
             )
             .push(
                 seekbar::seekbar(
@@ -710,6 +756,7 @@ fn bottom_bar<'a>(
                     thumbnails,
                     PlayerMessage::Seek,
                 )
+                .alpha(animation)
                 .step(0.1)
                 .on_release(PlayerMessage::SeekRelease),
             )
@@ -721,7 +768,8 @@ fn bottom_bar<'a>(
                     video.duration().as_secs() as u64 % 60
                 ))
                 .width(80.0)
-                .align_x(iced::Alignment::End),
+                .align_x(iced::Alignment::End)
+                .color(color!(0xf0f0f0).scale_alpha(animation)),
             )
             .into()
     }
@@ -731,6 +779,7 @@ fn bottom_bar<'a>(
         state: &AppState,
         subtitle_streams: Vec<String>,
         selected_subtitle: SubtitleOption,
+        animation: f32,
     ) -> iced::Element<'a, PlayerMessage> {
         let subtitle_file = if let SubtitleOption::File(path) = &selected_subtitle {
             path.file_name()
@@ -749,38 +798,65 @@ fn bottom_bar<'a>(
                     .spacing(10.0)
                     .width(iced::Length::Fill)
                     .push(control_button(
-                        icon(if video.muted() { 0xe04f } else { 0xe050 }),
+                        icon(if video.muted() { 0xe04f } else { 0xe050 })
+                            .color(color!(0xf0f0f0).scale_alpha(animation)),
                         PlayerMessage::ToggleMute,
                         true,
                     ))
                     .push(
                         slider(0.0..=1.0, video.volume(), PlayerMessage::Volume)
                             .step(0.05)
-                            .width(100.0),
+                            .width(100.0)
+                            .style(move |theme, status| {
+                                use slider::Catalog;
+                                let base = iced::Theme::default()(theme, status);
+                                slider::Style {
+                                    rail: slider::Rail {
+                                        backgrounds: (
+                                            base.rail.backgrounds.0.scale_alpha(animation),
+                                            base.rail.backgrounds.1.scale_alpha(animation),
+                                        ),
+                                        ..base.rail
+                                    },
+                                    handle: slider::Handle {
+                                        background: base.handle.background.scale_alpha(animation),
+                                        ..base.handle
+                                    },
+                                }
+                            }),
                     ),
             )
             // previous
-            .push(control_button(icon(0xe045), PlayerMessage::Previous, true))
+            .push(control_button(
+                icon(0xe045).color(color!(0xf0f0f0).scale_alpha(animation)),
+                PlayerMessage::Previous,
+                true,
+            ))
             // skip back
             .push(control_button(
-                icon(0xe020),
+                icon(0xe020).color(color!(0xf0f0f0).scale_alpha(animation)),
                 PlayerMessage::SkipBackward,
                 false,
             ))
             // play/pause
             .push(control_button(
-                icon(if video.paused() { 0xe037 } else { 0xe034 }),
+                icon(if video.paused() { 0xe037 } else { 0xe034 })
+                    .color(color!(0xf0f0f0).scale_alpha(animation)),
                 PlayerMessage::TogglePause,
                 false,
             ))
             // skip forward
             .push(control_button(
-                icon(0xe01f),
+                icon(0xe01f).color(color!(0xf0f0f0).scale_alpha(animation)),
                 PlayerMessage::SkipForward,
                 false,
             ))
             // next
-            .push(control_button(icon(0xe044), PlayerMessage::Next, true))
+            .push(control_button(
+                icon(0xe044).color(color!(0xf0f0f0).scale_alpha(animation)),
+                PlayerMessage::Next,
+                true,
+            ))
             // subtitle controls
             .push(
                 row![]
@@ -793,17 +869,16 @@ fn bottom_bar<'a>(
                             0xe048
                         } else {
                             0xef72
-                        }),
+                        })
+                        .color(color!(0xf0f0f0).scale_alpha(animation)),
                         PlayerMessage::ToggleSubtitles,
                         true,
                     ))
                     .push(
                         menu_button(
-                            container(
-                                icon(0xe5c7)
-                                    .size(30.0)
-                                    .color(iced::Color::from_rgb8(220, 220, 220)),
-                            )
+                            container(icon(0xe5c7).size(30.0).color(
+                                iced::Color::from_rgb8(220, 220, 220).scale_alpha(animation),
+                            ))
                             .center(iced::Length::Fill),
                             {
                                 let subtitle_streams = subtitle_streams.clone();
@@ -924,23 +999,24 @@ fn bottom_bar<'a>(
             .into()
     }
 
-    mouse_area(if show {
+    mouse_area(if show || animation > 0.001 {
         container(
             column![]
                 .spacing(15.0)
-                .push(seek_controls(position, thumbnails, video))
+                .push(seek_controls(position, thumbnails, video, animation))
                 .push(media_controls(
                     video,
                     state,
                     subtitle_streams,
                     selected_subtitle,
+                    animation,
                 )),
         )
         .padding(iced::Padding::new(20.0))
-        .style(|_| container::Style {
+        .style(move |_| container::Style {
             background: Some(iced::Background::Gradient(iced::Gradient::Linear(
                 iced::gradient::Linear::new(0.0)
-                    .add_stop(0.0, iced::Color::from_rgba8(0, 0, 0, 0.95))
+                    .add_stop(0.0, iced::Color::from_rgba8(0, 0, 0, animation * 0.95))
                     .add_stop(1.0, iced::Color::from_rgba8(0, 0, 0, 0.0)),
             ))),
             ..Default::default()
@@ -966,8 +1042,7 @@ fn control_button(
             .width(iced::Length::Fill)
             .height(iced::Length::Fill)
             .align_x(iced::Alignment::Center)
-            .align_y(iced::Alignment::Center)
-            .color(iced::Color::from_rgb8(220, 220, 220)),
+            .align_y(iced::Alignment::Center),
     )
     .style(|_, status| button::Style {
         background: match status {

@@ -33,6 +33,7 @@ pub struct Seekbar<'a, Message, Renderer = iced::Renderer> {
     width: iced::Length,
     height: f32,
     thumbnails: Vec<image::Handle>,
+    alpha: f32,
     _renderer: PhantomData<Renderer>,
 }
 
@@ -57,6 +58,7 @@ impl<'a, Message, Renderer> Seekbar<'a, Message, Renderer> {
             width: iced::Length::Fill,
             height: 20.0,
             thumbnails,
+            alpha: 1.0,
             _renderer: Default::default(),
         }
     }
@@ -68,6 +70,11 @@ impl<'a, Message, Renderer> Seekbar<'a, Message, Renderer> {
 
     pub fn step(mut self, step: impl Into<Value>) -> Self {
         self.step = step.into();
+        self
+    }
+
+    pub fn alpha(mut self, alpha: f32) -> Self {
+        self.alpha = alpha;
         self
     }
 }
@@ -265,13 +272,13 @@ where
         let bounds = layout.bounds();
 
         let rail_backgrounds = (
-            iced::Background::Color(iced::Color::from_rgba8(245, 245, 245, 0.9)),
-            iced::Background::Color(iced::Color::from_rgba8(150, 150, 150, 0.7)),
+            iced::Background::Color(iced::Color::from_rgba8(245, 245, 245, self.alpha * 0.9)),
+            iced::Background::Color(iced::Color::from_rgba8(150, 150, 150, self.alpha * 0.7)),
         );
         let rail_width = 3.0;
 
         let handle_background =
-            iced::Background::Color(iced::Color::from_rgba8(245, 245, 245, 0.9));
+            iced::Background::Color(iced::Color::from_rgba8(245, 245, 245, self.alpha * 0.9));
         let handle_width = 7.0;
         let handle_height = bounds.height;
         let handle_border_radius = iced::border::radius(2.0);
